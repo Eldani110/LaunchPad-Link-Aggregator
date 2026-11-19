@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { LaunchpadProvider, useLaunchpad } from "./context/LaunchpadContext";
 import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
+import { DesktopUpdateBanner } from "./components/DesktopUpdateBanner";
 import { Toaster } from "sonner";
 
 const ProtectedRoute: React.FC<{ children: React.ReactElement }> = ({ children }) => {
@@ -29,6 +30,7 @@ export default function App() {
     <LaunchpadProvider>
       <HashRouter>
         <Toaster position="top-center" richColors />
+        <DesktopUpdateBanner />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route

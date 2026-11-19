@@ -8,6 +8,7 @@ import {
   ChevronDown, CornerDownRight, User, Download
 } from "lucide-react";
 import { toast } from "sonner";
+import { DesktopUpdatesSection } from "./DesktopUpdatesSection";
 
 interface SettingsFormProps {
   currentTitle: string;
@@ -536,6 +537,9 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
                  </button>
               </div>
             </div>
+
+            {/* Desktop Auto-Update Section (visible only in Electron desktop app) */}
+            <DesktopUpdatesSection />
 
             {/* Icon Size */}
             <div className="space-y-2">

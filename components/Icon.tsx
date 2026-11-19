@@ -163,8 +163,11 @@ export const Icon: React.FC<IconProps> = ({
                 alt={title}
                 className="w-full h-full object-cover"
                 onError={(e) => {
-                  // Fallback to text placeholder if image fails
-                  e.currentTarget.src = "https://via.placeholder.com/128?text=" + title.charAt(0);
+                  // Local inline SVG fallback (no external placeholder dependency)
+                  const initial = (title.trim().charAt(0) || "?").toUpperCase().replace(/[<>&"']/g, "");
+                  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" fill="#1e293b"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="56" font-weight="600">${initial}</text></svg>`;
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
                 }}
               />
             </div>

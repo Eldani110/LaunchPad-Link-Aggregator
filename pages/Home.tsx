@@ -15,6 +15,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { AccountTabsBar } from "../components/AccountTabsBar";
 import { ChevronRight, Home as HomeIcon, Settings, Cloud, Loader2, Trash2, LayoutGrid, List as ListIcon, AlertCircle, Menu, Share2, Copy } from "lucide-react";
 import { toast } from "sonner";
+import { openExternalLink } from "../services/platform";
 import {
   DndContext,
   closestCenter,
@@ -156,7 +157,7 @@ export const Home = () => {
   };
 
   const handleLinkClick = (link: LinkItem) => {
-    window.open(link.url, "_blank");
+    openExternalLink(link.url);
   };
 
   const handleShare = () => {

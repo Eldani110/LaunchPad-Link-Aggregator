@@ -1,0 +1,102 @@
+name: Build & Publish Desktop Releases (Windows, Ubuntu, macOS)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-desktop:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform_name: linux
+            platform_cmd: npm run desktop:build:linux
+          - os: windows-latest
+            platform_name: windows
+            platform_cmd: npm run desktop:build:win
+          - os: macos-latest
+            platform_name: macos
+            platform_cmd: npm run desktop:build:mac
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync Web to Desktop & Build Installers + Update Metadata
+        run: ${{ matrix.platform_cmd }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Upload Desktop Artifacts & Updater Metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform_name }}
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/*.deb
+            release/*.AppImage
+            release/*.dmg
+            release/*.dmg.blockmap
+            release/*.zip
+            release/*.zip.blockmap
+            release/latest*.yml
+          if-no-files-found: error
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs: build-desktop
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-releases
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lh all-releases/
+
+      - name: Create / Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            all-releases/*.exe
+            all-releases/*.exe.blockmap
+            all-releases/*.deb
+            all-releases/*.AppImage
+            all-releases/*.dmg
+            all-releases/*.dmg.blockmap
+            all-releases/*.zip
+            all-releases/*.zip.blockmap
+            all-releases/latest*.yml

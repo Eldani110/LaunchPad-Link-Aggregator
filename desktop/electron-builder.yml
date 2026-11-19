@@ -1,0 +1,87 @@
+appId: com.launchpad.aggregator
+productName: LaunchPad
+copyright: Copyright © 2026 LaunchPad
+directories:
+  output: release
+  buildResources: desktop/assets
+files:
+  - dist/**/*
+  - desktop/main.cjs
+  - desktop/preload.cjs
+  - desktop/updater.cjs
+  - desktop/assets/icon.png
+  - package.json
+  - node_modules/**/*
+  - "!node_modules/firebase/**/*"
+  - "!node_modules/@firebase/**/*"
+  - "!node_modules/@google/**/*"
+  - "!node_modules/@dnd-kit/**/*"
+  - "!node_modules/@opentelemetry/**/*"
+  - "!node_modules/lucide-react/**/*"
+  - "!node_modules/react/**/*"
+  - "!node_modules/react-dom/**/*"
+  - "!node_modules/react-router/**/*"
+  - "!node_modules/react-router-dom/**/*"
+  - "!node_modules/sonner/**/*"
+  - "!node_modules/uuid/**/*"
+asar: true
+
+publish:
+  - provider: github
+    owner: Eldani110
+    repo: LaunchPad-Link-Aggregator
+    releaseType: release
+
+win:
+  icon: desktop/assets/icon.ico
+  artifactName: "${productName}-${version}-win-${arch}.${ext}"
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  artifactName: "${productName}-Setup-${version}-win-${arch}.${ext}"
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: LaunchPad
+
+portable:
+  artifactName: "${productName}-Portable-${version}-win-${arch}.${ext}"
+
+linux:
+  icon: desktop/assets/icon.png
+  artifactName: "${productName}-${version}-linux-${arch}.${ext}"
+  category: Utility;Network
+  syncDesktopName: true
+  maintainer: LaunchPad <launchpad@local>
+  synopsis: Agregador visual de enlaces sincronizado con Firebase
+  description: >-
+    LaunchPad Agregador de escritorio con interfaz 100% local y datos
+    sincronizados en tiempo real con Firebase Firestore.
+  target:
+    - target: deb
+      arch:
+        - x64
+    - target: AppImage
+      arch:
+        - x64
+
+mac:
+  icon: desktop/assets/icon.icns
+  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
