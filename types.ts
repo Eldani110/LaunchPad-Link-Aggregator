@@ -30,6 +30,7 @@ export interface BackupData {
   backgroundImage: string;
   logoImage: string;
   iconSize: IconSize;
+  layoutMode?: LayoutMode;
   lastUpdated: number;
 }
 
@@ -37,4 +38,12 @@ export interface UserProfile {
   name: string;
   email: string;
   picture: string;
+}
+
+export interface AccountTab {
+  slotId: string;
+  uid: string;
+  email: string;
+  appTitle: string;
+  logoImage?: string;
 }

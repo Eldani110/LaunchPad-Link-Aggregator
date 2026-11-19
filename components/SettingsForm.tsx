@@ -38,12 +38,10 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
 }) => {
   const { 
     links,
-    isDriveConnected, 
     isSyncing, 
     lastSyncTime, 
     userEmail,
-    connectDrive, 
-    disconnectDrive,
+    disconnectCloud,
     iconSize,
     updateIconSize,
     getCategoryData,
@@ -502,59 +500,41 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
             <div className="p-4 rounded-xl bg-gradient-to-br from-blue-900/20 to-indigo-900/20 border border-blue-500/20">
               <div className="flex items-center justify-between mb-3">
                  <div className="flex items-center gap-2">
-                   <Cloud className={`w-5 h-5 ${isDriveConnected ? 'text-green-400' : 'text-blue-300'}`} />
-                   <h3 className="font-semibold text-white text-sm">Copia en la Nube</h3>
+                   <Cloud className="w-5 h-5 text-green-400" />
+                   <h3 className="font-semibold text-white text-sm">Cuenta y Sincronización</h3>
                  </div>
                  {isSyncing && <Loader2 className="w-4 h-4 text-blue-300 animate-spin" />}
               </div>
-              
-              {!isDriveConnected ? (
-                <div>
-                   <p className="text-xs text-blue-200/70 mb-3">
-                     Conecta Google Drive para respaldar automáticamente tus enlaces y configuraciones.
-                   </p>
-                   <button
-                    type="button"
-                    onClick={connectDrive}
-                    className="w-full py-2 bg-white/10 hover:bg-white/20 border border-white/10 rounded-lg text-sm font-medium text-white transition-all flex items-center justify-center gap-2"
-                   >
-                     <img src="https://www.google.com/favicon.ico" alt="G" className="w-4 h-4" />
-                     Conectar Google Drive
-                   </button>
-                   {userEmail && (
-                      <p className="text-[10px] text-center mt-2 text-white/30">
-                        Recordar: {userEmail}
-                      </p>
-                   )}
-                </div>
-              ) : (
-                <div>
-                   <div className="flex justify-between items-center mb-2">
-                      <div className="flex flex-col">
-                        <span className="text-xs text-green-400 flex items-center gap-1">
-                            <Check size={12} /> Sincronización Activa
-                        </span>
-                        {userEmail && (
-                            <span className="text-[11px] text-white/60 flex items-center gap-1 mt-0.5">
-                                <User size={10} /> {userEmail}
-                            </span>
-                        )}
-                      </div>
-                      {lastSyncTime && (
-                        <span className="text-[10px] text-white/40">
-                          {new Date(lastSyncTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                        </span>
+
+              <div>
+                 <div className="flex justify-between items-center mb-3">
+                    <div className="flex flex-col">
+                      <span className="text-xs text-green-400 flex items-center gap-1">
+                          <Check size={12} /> Sincronización Activa
+                      </span>
+                      {userEmail && (
+                          <span className="text-[11px] text-white/60 flex items-center gap-1 mt-0.5">
+                              <User size={10} /> {userEmail}
+                          </span>
                       )}
-                   </div>
-                   <button
-                    type="button"
-                    onClick={disconnectDrive}
-                    className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg text-xs font-medium text-red-300 transition-all flex items-center justify-center gap-2"
-                   >
-                     <LogOut size={14} /> Desconectar
-                   </button>
-                </div>
-              )}
+                    </div>
+                    {lastSyncTime && (
+                      <span className="text-[10px] text-white/40">
+                        {new Date(lastSyncTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      </span>
+                    )}
+                 </div>
+                 <button
+                  type="button"
+                  onClick={async () => {
+                    onCancel();
+                    await disconnectCloud();
+                  }}
+                  className="w-full py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg text-xs font-medium text-red-300 transition-all flex items-center justify-center gap-2"
+                 >
+                   <LogOut size={14} /> Cerrar sesión de esta pestaña
+                 </button>
+              </div>
             </div>
 
             {/* Icon Size */}

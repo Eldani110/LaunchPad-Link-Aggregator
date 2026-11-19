@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { LinkItem, Category } from "../types";
 import { useLaunchpad } from "../context/LaunchpadContext";
@@ -12,8 +12,8 @@ import { SettingsForm } from "../components/SettingsForm";
 import { ListView } from "../components/ListView";
 import { CategorySidebar } from "../components/CategorySidebar";
 import { ConfirmModal } from "../components/ConfirmModal";
-import { WelcomeScreen } from "../components/WelcomeScreen";
-import { ChevronRight, Home as HomeIcon, Settings, Cloud, Loader2, Save, Trash2, LayoutGrid, List as ListIcon, AlertCircle, Menu, Share2, Copy } from "lucide-react";
+import { AccountTabsBar } from "../components/AccountTabsBar";
+import { ChevronRight, Home as HomeIcon, Settings, Cloud, Loader2, Trash2, LayoutGrid, List as ListIcon, AlertCircle, Menu, Share2, Copy } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -55,9 +55,6 @@ export const Home = () => {
     replaceLinks,
     replaceCategories,
     isSyncing,
-    isDriveConnected,
-    isAuthReady,
-    isGuestMode,
     lastSyncTime,
     iconSize,
     layoutMode,
@@ -346,16 +343,31 @@ export const Home = () => {
     return null;
   };
 
-  if (!isAuthReady) {
-      return (
-          <div className="min-h-screen w-full flex items-center justify-center bg-gray-900">
-              <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-          </div>
-      )
-  }
+  const categoryStats = useMemo(() => {
+    const linkCounts = new Map<string, number>();
+    const previewMap = new Map<string, string[]>();
+    const subFolderCounts = new Map<string, number>();
+
+    for (const l of links) {
+      if (!l.categoryId) continue;
+      linkCounts.set(l.categoryId, (linkCounts.get(l.categoryId) || 0) + 1);
+      const previews = previewMap.get(l.categoryId) || [];
+      if (previews.length < 4) {
+        previews.push(l.customIconUrl || `https://www.google.com/s2/favicons?domain=${l.url}&sz=128`);
+        previewMap.set(l.categoryId, previews);
+      }
+    }
+
+    for (const c of categories) {
+      if (!c.parentId) continue;
+      subFolderCounts.set(c.parentId, (subFolderCounts.get(c.parentId) || 0) + 1);
+    }
+
+    return { linkCounts, previewMap, subFolderCounts };
+  }, [links, categories]);
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-gray-900 font-sans text-slate-100 selection:bg-blue-500/30 flex flex-col">
+    <div className="relative h-screen w-full overflow-hidden bg-gray-900 font-sans text-slate-100 selection:bg-blue-500/30 flex flex-col">
       
       {/* Dynamic Background */}
       <div 
@@ -364,16 +376,20 @@ export const Home = () => {
           backgroundImage: `url('${backgroundImage}')`,
         }}
       >
-        <div className={`absolute inset-0 bg-black/20 backdrop-blur-xl transition-all duration-500 ${activeFolderId || layoutMode === 'list' || (!isDriveConnected && !isGuestMode) ? "backdrop-blur-3xl bg-black/40" : ""}`} />
+        <div className={`absolute inset-0 bg-black/20 backdrop-blur-xl transition-all duration-500 ${activeFolderId || layoutMode === 'list' ? "backdrop-blur-3xl bg-black/40" : ""}`} />
       </div>
 
-      {/* LOGIN WALL: If not connected and not guest */}
-      {!isDriveConnected && !isGuestMode ? (
-        <WelcomeScreen />
-      ) : (
-        <div className="flex-1 flex overflow-hidden relative z-10">
-            {/* Controls - Fixed Position (z-50) */}
-            <div className="fixed top-4 right-4 sm:top-6 sm:right-6 z-50 flex items-center gap-3">
+      {/* Browser-style Multi-Account Top Tab Bar */}
+      <AccountTabsBar
+        onAccountSwitch={() => {
+          setActiveFolderId(null);
+          setIsSidebarOpen(false);
+        }}
+      />
+
+      <div className="flex-1 flex overflow-hidden relative z-10">
+            {/* Controls - Positioned cleanly below tab bar */}
+            <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-40 flex items-center gap-3">
                 <div className="flex bg-black/20 backdrop-blur-xl border border-white/10 rounded-full p-1 shadow-lg">
                     <button
                     onClick={() => { updateLayoutMode('grid'); setActiveFolderId(null); }}
@@ -403,18 +419,18 @@ export const Home = () => {
             {/* Mobile Sidebar Toggle */}
             <button 
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="fixed top-4 left-4 z-50 md:hidden p-3 bg-black/20 backdrop-blur-xl border border-white/10 rounded-full text-white/70"
+                className="absolute top-4 left-4 z-40 md:hidden p-3 bg-black/20 backdrop-blur-xl border border-white/10 rounded-full text-white/70"
             >
                 <Menu size={20} />
             </button>
 
             {/* SIDEBAR */}
             <div className={`
-                fixed inset-y-0 left-0 w-64 bg-gray-900/60 backdrop-blur-2xl border-r border-white/10 transform transition-transform duration-300 ease-in-out z-40
+                absolute inset-y-0 left-0 w-64 bg-gray-900/60 backdrop-blur-2xl border-r border-white/10 transform transition-transform duration-300 ease-in-out z-30
                 md:relative md:translate-x-0 md:bg-transparent md:backdrop-blur-none
                 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
             `}>
-                <div className="h-full pt-20 md:pt-12 px-2">
+                <div className="h-full pt-20 md:pt-8 px-2">
                     <CategorySidebar 
                         categories={categories}
                         activeFolderId={activeFolderId}
@@ -529,9 +545,9 @@ export const Home = () => {
                             
                             <SortableContext items={visibleCategories} strategy={rectSortingStrategy}>
                                 {visibleCategories.map((cat) => {
-                                const catLinksCount = links.filter(l => l.categoryId === cat.id).length;
-                                const subFoldersCount = categories.filter(c => c.parentId === cat.id).length;
-                                const previewIcons = links.filter(l => l.categoryId === cat.id).map(getIconUrl);
+                                const catLinksCount = categoryStats.linkCounts.get(cat.id) || 0;
+                                const subFoldersCount = categoryStats.subFolderCounts.get(cat.id) || 0;
+                                const previewIcons = categoryStats.previewMap.get(cat.id) || [];
                                 
                                 return (
                                     <SortableIcon
@@ -581,17 +597,12 @@ export const Home = () => {
                         <Loader2 size={12} className="animate-spin text-blue-400" />
                         <span className="text-blue-100 group-hover:text-white transition-colors">Guardando...</span>
                         </>
-                    ) : isDriveConnected ? (
+                    ) : (
                         <>
                         <Cloud size={12} className="text-emerald-400/80 group-hover:text-emerald-400 transition-colors" />
                         <span className="text-emerald-100/60 group-hover:text-emerald-50 transition-colors">
                             Sincronizado {lastSyncTime && `• ${new Date(lastSyncTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`}
                         </span>
-                        </>
-                    ) : (
-                        <>
-                        <Save size={12} className="text-white/30 group-hover:text-white/60 transition-colors" />
-                        <span className="group-hover:text-white transition-colors">Local</span>
                         </>
                     )}
                 </div>
@@ -860,7 +871,6 @@ export const Home = () => {
                 />
             </GlassModal>
         </div>
-      )}
     </div>
   );
 };

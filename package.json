@@ -13,6 +13,7 @@
     "@dnd-kit/sortable": "latest",
     "@dnd-kit/utilities": "latest",
     "@google/genai": "^1.38.0",
+    "firebase": "^13.4.0",
     "lucide-react": "^0.563.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
