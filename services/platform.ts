@@ -22,6 +22,9 @@ export interface DesktopUpdateState {
   transferred: number;
   total: number;
   canAutoInstall: boolean;
+  packageType?: string;
+  hasToken?: boolean;
+  needsAuth?: boolean;
   checkedAt: number | null;
   error: string | null;
 }
@@ -31,6 +34,7 @@ export interface DesktopUpdaterBridge {
   checkForUpdates: () => Promise<DesktopUpdateState>;
   downloadUpdate: () => Promise<DesktopUpdateState>;
   installUpdate: () => Promise<boolean>;
+  setToken?: (token: string | null) => Promise<DesktopUpdateState>;
   openReleasePage: (url?: string) => Promise<boolean>;
   onStatusChange: (callback: (state: DesktopUpdateState) => void) => () => void;
 }
