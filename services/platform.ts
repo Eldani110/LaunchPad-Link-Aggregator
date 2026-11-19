@@ -29,12 +29,33 @@ export interface DesktopUpdateState {
   error: string | null;
 }
 
+export interface DesktopReleaseItem {
+  id: number;
+  tagName: string;
+  version: string;
+  name: string;
+  body: string | null;
+  publishedAt: string | null;
+  htmlUrl: string;
+  prerelease: boolean;
+  isCurrent: boolean;
+  isLatest: boolean;
+}
+
+export interface DesktopReleasesListResult {
+  ok: boolean;
+  needsAuth: boolean;
+  releases: DesktopReleaseItem[];
+  error?: string;
+}
+
 export interface DesktopUpdaterBridge {
   getState: () => Promise<DesktopUpdateState>;
   checkForUpdates: () => Promise<DesktopUpdateState>;
   downloadUpdate: () => Promise<DesktopUpdateState>;
   installUpdate: () => Promise<boolean>;
   setToken?: (token: string | null) => Promise<DesktopUpdateState>;
+  listReleases?: () => Promise<DesktopReleasesListResult>;
   openReleasePage: (url?: string) => Promise<boolean>;
   onStatusChange: (callback: (state: DesktopUpdateState) => void) => () => void;
 }

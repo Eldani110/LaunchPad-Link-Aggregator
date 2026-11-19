@@ -8,14 +8,16 @@ import { SortableIcon } from "../components/SortableIcon";
 import { Dock } from "../components/Dock";
 import { GlassModal } from "../components/GlassModal";
 import { AddEditForm } from "../components/AddEditForm";
-import { SettingsForm } from "../components/SettingsForm";
+import { SettingsForm, SettingsTab } from "../components/SettingsForm";
 import { ListView } from "../components/ListView";
 import { CategorySidebar } from "../components/CategorySidebar";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { AccountTabsBar } from "../components/AccountTabsBar";
-import { ChevronRight, Home as HomeIcon, Settings, Cloud, Loader2, Trash2, LayoutGrid, List as ListIcon, AlertCircle, Menu, Share2, Copy } from "lucide-react";
+import { ChevronRight, Home as HomeIcon, Settings, Cloud, Loader2, Trash2, LayoutGrid, List as ListIcon, AlertCircle, Menu, Share2, Copy, Monitor, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import {
+  DesktopUpdateState,
+  getDesktopUpdater,
   getLocalAppFallbackIcon,
   isDesktopApp,
   isLinkVisibleOnCurrentPlatform,
@@ -82,7 +84,38 @@ export const Home = () => {
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [editingLink, setEditingLink] = useState<LinkItem | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('categories');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Desktop version & update status (only active in Electron desktop app)
+  const desktopMode = isDesktopApp();
+  const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
+
+  useEffect(() => {
+    if (!desktopMode) return;
+    const updater = getDesktopUpdater();
+    if (!updater) return;
+    let active = true;
+    updater.getState().then((s) => {
+      if (active) setDesktopUpdateState(s);
+    }).catch(() => {});
+    const unsub = updater.onStatusChange((s) => {
+      if (active) setDesktopUpdateState(s);
+    });
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, [desktopMode]);
+
+  const hasDesktopUpdate =
+    desktopUpdateState?.status === "available" ||
+    desktopUpdateState?.status === "downloaded";
+
+  const openSettingsTab = (tab: SettingsTab = 'categories') => {
+    setSettingsInitialTab(tab);
+    setIsSettingsModalOpen(true);
+  };
 
   // Sidebar toggle for mobile
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -435,11 +468,17 @@ export const Home = () => {
                 </div>
 
                 <button
-                onClick={() => setIsSettingsModalOpen(true)}
-                className="p-3 bg-black/20 hover:bg-black/40 backdrop-blur-xl border border-white/10 rounded-full text-white/70 hover:text-white transition-all duration-200 hover:scale-110 shadow-lg group"
+                onClick={() => openSettingsTab('categories')}
+                className="relative p-3 bg-black/20 hover:bg-black/40 backdrop-blur-xl border border-white/10 rounded-full text-white/70 hover:text-white transition-all duration-200 hover:scale-110 shadow-lg group"
                 title="Configuración"
                 >
                 <Settings size={20} className="group-hover:rotate-45 transition-transform duration-500" />
+                {hasDesktopUpdate && (
+                  <span
+                    className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-gray-900 animate-pulse"
+                    title={`Actualización v${desktopUpdateState?.latestVersion} disponible`}
+                  />
+                )}
                 </button>
             </div>
 
@@ -617,9 +656,9 @@ export const Home = () => {
                 )}
             </main>
 
-            {/* Status Footer - Moved inside main or fixed differently if sidebar is present */}
-            <div className="fixed bottom-6 left-6 z-40 animate-in fade-in slide-in-from-bottom-4 duration-700 select-none hidden md:block">
-                <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-black/20 backdrop-blur-xl border border-white/5 text-[11px] font-medium text-white/40 shadow-lg transition-all hover:bg-black/30 hover:text-white/80 hover:border-white/10 group cursor-default">
+            {/* Status Footer - Sync + Desktop Version/Updates Pill */}
+            <div className="fixed bottom-6 left-6 z-40 animate-in fade-in slide-in-from-bottom-4 duration-700 select-none flex items-center gap-2">
+                <div className="hidden md:flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-black/20 backdrop-blur-xl border border-white/5 text-[11px] font-medium text-white/40 shadow-lg transition-all hover:bg-black/30 hover:text-white/80 hover:border-white/10 group cursor-default">
                     {isSyncing ? (
                         <>
                         <Loader2 size={12} className="animate-spin text-blue-400" />
@@ -634,6 +673,36 @@ export const Home = () => {
                         </>
                     )}
                 </div>
+
+                {desktopMode && (
+                  <button
+                    type="button"
+                    onClick={() => openSettingsTab('desktop')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full backdrop-blur-xl border text-[11px] font-medium shadow-lg transition-all hover:scale-[1.03] active:scale-95 ${
+                      hasDesktopUpdate
+                        ? "bg-blue-600/30 hover:bg-blue-600/45 border-blue-400/40 text-blue-100"
+                        : "bg-black/25 hover:bg-black/40 border-white/10 text-white/55 hover:text-white"
+                    }`}
+                    title="Ver versión de escritorio y actualizaciones"
+                  >
+                    {hasDesktopUpdate ? (
+                      <>
+                        <Sparkles size={12} className="text-emerald-300 animate-pulse" />
+                        <span className="font-mono">v{desktopUpdateState?.currentVersion}</span>
+                        <span className="text-emerald-300 font-semibold">
+                          • Nueva v{desktopUpdateState?.latestVersion}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Monitor size={12} className="text-blue-300/80" />
+                        <span className="font-mono">
+                          v{desktopUpdateState?.currentVersion || "..."}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                )}
             </div>
 
             {/* Dock is available in both modes to add items quickly */}
@@ -889,6 +958,7 @@ export const Home = () => {
                 currentBg={backgroundImage}
                 currentLogo={logoImage}
                 categories={categories}
+                initialTab={settingsInitialTab}
                 onSaveTitle={updateAppTitle}
                 onSaveBg={updateBackgroundImage}
                 onSaveLogo={updateLogoImage}

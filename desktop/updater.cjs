@@ -7,6 +7,7 @@ const GITHUB_OWNER = "Eldani110";
 const GITHUB_REPO = "LaunchPad-Link-Aggregator";
 const GITHUB_RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
 const GITHUB_REPO_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}`;
+const GITHUB_RELEASES_API = `${GITHUB_REPO_API}/releases?per_page=8`;
 const GITHUB_LATEST_API = `${GITHUB_REPO_API}/releases/latest`;
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
@@ -499,6 +500,75 @@ function initUpdater({ getMainWindow, skipAutoCheck = false }) {
     return await checkForUpdates({ silent: false });
   }
 
+  async function listReleases() {
+    try {
+      const headers = buildGitHubHeaders();
+      const response = await net.fetch(GITHUB_RELEASES_API, { headers });
+
+      if (response.status === 401 || response.status === 403) {
+        return {
+          ok: false,
+          needsAuth: true,
+          releases: [],
+          error: "Token de GitHub inválido o sin permisos para leer los lanzamientos.",
+        };
+      }
+
+      if (response.status === 404) {
+        const repoResp = await net.fetch(GITHUB_REPO_API, { headers });
+        if (repoResp.status === 404 || repoResp.status === 401 || repoResp.status === 403) {
+          return {
+            ok: false,
+            needsAuth: true,
+            releases: [],
+            error: "Repositorio privado: hazlo público o configura un Token de lectura para ver el historial de versiones.",
+          };
+        }
+        return { ok: true, needsAuth: false, releases: [] };
+      }
+
+      if (!response.ok) {
+        return {
+          ok: false,
+          needsAuth: false,
+          releases: [],
+          error: `GitHub API respondió con estado ${response.status}`,
+        };
+      }
+
+      const rawList = await response.json();
+      const currentClean = String(app.getVersion() || "").replace(/^v/i, "").trim();
+      const published = (Array.isArray(rawList) ? rawList : []).filter(
+        (r) => r && !r.draft
+      );
+
+      const releases = published.map((r, index) => {
+        const version = String(r.tag_name || "").replace(/^v/i, "").trim();
+        return {
+          id: r.id,
+          tagName: r.tag_name || `v${version}`,
+          version,
+          name: r.name || r.tag_name || `v${version}`,
+          body: normalizeReleaseNotes(r.body),
+          publishedAt: r.published_at || r.created_at || null,
+          htmlUrl: r.html_url || GITHUB_RELEASES_PAGE,
+          prerelease: Boolean(r.prerelease),
+          isCurrent: version === currentClean,
+          isLatest: index === 0,
+        };
+      });
+
+      return { ok: true, needsAuth: false, releases };
+    } catch (err) {
+      return {
+        ok: false,
+        needsAuth: false,
+        releases: [],
+        error: err?.message || "No se pudo obtener la lista de versiones.",
+      };
+    }
+  }
+
   async function openReleasePage(customUrl) {
     const candidate =
       typeof customUrl === "string" && customUrl.startsWith("https://")
@@ -513,6 +583,7 @@ function initUpdater({ getMainWindow, skipAutoCheck = false }) {
   ipcMain.handle("desktop:updater:download", () => downloadUpdate());
   ipcMain.handle("desktop:updater:install", () => installUpdate());
   ipcMain.handle("desktop:updater:set-token", (_event, token) => setToken(token));
+  ipcMain.handle("desktop:updater:list-releases", () => listReleases());
   ipcMain.handle("desktop:updater:open-release", (_event, url) => openReleasePage(url));
 
   if (!skipAutoCheck) {

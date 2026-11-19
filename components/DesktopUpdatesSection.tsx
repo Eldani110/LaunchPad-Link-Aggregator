@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   CheckCircle2,
   Download,
@@ -6,22 +6,69 @@ import {
   Loader2,
   RefreshCw,
   AlertTriangle,
-  Sparkles,
   KeyRound,
   Trash2,
+  Monitor,
+  Clock,
+  Tag,
+  History,
 } from "lucide-react";
 import {
+  DesktopReleaseItem,
   DesktopUpdateState,
   getDesktopPlatformLabel,
   getDesktopUpdater,
   isDesktopApp,
 } from "../services/platform";
 
+const formatBytes = (bytes: number): string => {
+  if (!bytes || bytes <= 0) return "0 MB";
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1) return `${mb.toFixed(1)} MB`;
+  return `${Math.round(bytes / 1024)} KB`;
+};
+
+const formatDate = (iso: string | null): string => {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString("es-ES", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return "";
+  }
+};
+
 export const DesktopUpdatesSection: React.FC = () => {
   const [updateState, setUpdateState] = useState<DesktopUpdateState | null>(null);
+  const [releases, setReleases] = useState<DesktopReleaseItem[]>([]);
+  const [releasesLoading, setReleasesLoading] = useState(false);
+  const [releasesError, setReleasesError] = useState<string | null>(null);
   const [showTokenInput, setShowTokenInput] = useState(false);
   const [tokenDraft, setTokenDraft] = useState("");
   const [isSavingToken, setIsSavingToken] = useState(false);
+
+  const loadReleases = useCallback(async () => {
+    const updater = getDesktopUpdater();
+    if (!updater?.listReleases) return;
+    setReleasesLoading(true);
+    setReleasesError(null);
+    try {
+      const res = await updater.listReleases();
+      if (res.ok) {
+        setReleases(res.releases);
+      } else {
+        setReleases([]);
+        setReleasesError(res.error || null);
+      }
+    } catch {
+      setReleasesError("No se pudo cargar el historial de versiones.");
+    } finally {
+      setReleasesLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isDesktopApp()) return;
@@ -36,6 +83,8 @@ export const DesktopUpdatesSection: React.FC = () => {
       })
       .catch(() => {});
 
+    void loadReleases();
+
     const unsubscribe = updater.onStatusChange((next) => {
       if (active) setUpdateState(next);
     });
@@ -44,7 +93,7 @@ export const DesktopUpdatesSection: React.FC = () => {
       active = false;
       unsubscribe();
     };
-  }, []);
+  }, [loadReleases]);
 
   if (!isDesktopApp()) return null;
 
@@ -55,12 +104,21 @@ export const DesktopUpdatesSection: React.FC = () => {
   const currentVersion = updateState?.currentVersion ?? "1.0.0";
   const latestVersion = updateState?.latestVersion;
   const progress = updateState?.progress ?? 0;
+  const transferred = updateState?.transferred ?? 0;
+  const total = updateState?.total ?? 0;
+  const bytesPerSecond = updateState?.bytesPerSecond ?? 0;
   const canAutoInstall = updateState?.canAutoInstall ?? false;
   const hasToken = Boolean(updateState?.hasToken);
   const needsAuth = Boolean(updateState?.needsAuth);
   const packageType = updateState?.packageType;
+  const checkedAt = updateState?.checkedAt;
   const isChecking = status === "checking";
   const isDownloading = status === "downloading";
+
+  const handleCheck = async () => {
+    await updater.checkForUpdates();
+    await loadReleases();
+  };
 
   const handleSaveToken = async () => {
     if (!updater.setToken || !tokenDraft.trim()) return;
@@ -69,6 +127,7 @@ export const DesktopUpdatesSection: React.FC = () => {
       await updater.setToken(tokenDraft.trim());
       setTokenDraft("");
       setShowTokenInput(false);
+      await loadReleases();
     } finally {
       setIsSavingToken(false);
     }
@@ -79,155 +138,300 @@ export const DesktopUpdatesSection: React.FC = () => {
     setIsSavingToken(true);
     try {
       await updater.setToken(null);
+      await loadReleases();
     } finally {
       setIsSavingToken(false);
     }
   };
 
-  const platformBadge =
+  const packageLabel =
     packageType && packageType !== "dev" && packageType !== "unknown"
-      ? `${getDesktopPlatformLabel()} (${packageType})`
-      : getDesktopPlatformLabel();
+      ? packageType.toUpperCase()
+      : "DEV";
 
   return (
-    <div className="p-4 rounded-xl bg-white/[0.04] border border-white/10 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-blue-400" />
-          <h3 className="font-semibold text-white text-sm">
-            Actualizaciones de Escritorio
-          </h3>
-        </div>
-        <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70 font-mono">
-          v{currentVersion} • {platformBadge}
-        </span>
-      </div>
-
-      {/* Status description */}
-      <div className="text-xs text-white/60">
-        {isChecking && (
-          <span className="flex items-center gap-2 text-blue-300">
-            <Loader2 size={13} className="animate-spin" />
-            Consultando GitHub Releases...
-          </span>
-        )}
-
-        {status === "idle" && (
-          <span>Las actualizaciones se obtienen automáticamente desde GitHub Releases.</span>
-        )}
-
-        {status === "not-available" && (
-          <span className="flex items-center gap-1.5 text-emerald-400">
-            <CheckCircle2 size={13} />
-            Tienes la versión más reciente instalada (v{currentVersion}).
-          </span>
-        )}
-
-        {status === "available" && (
-          <span className="text-blue-300">
-            Nueva versión <strong className="text-white">v{latestVersion}</strong> disponible en
-            GitHub Releases.
-          </span>
-        )}
-
-        {isDownloading && (
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-blue-300">
-              <span>Descargando v{latestVersion}...</span>
-              <span>{progress}%</span>
+    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto pr-2 space-y-4">
+      {/* Current Installed Version Hero Card */}
+      <div className="p-4 rounded-xl bg-gradient-to-br from-blue-900/25 via-indigo-900/20 to-slate-900/40 border border-blue-500/25 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-300 shrink-0">
+              <Monitor size={22} />
             </div>
-            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-blue-500 transition-all duration-200"
-                style={{ width: `${progress}%` }}
-              />
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-white/45 font-medium">
+                LaunchPad Escritorio
+              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-2xl font-semibold text-white font-mono tracking-tight">
+                  v{currentVersion}
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 border border-white/10 text-white/75 font-medium">
+                  {getDesktopPlatformLabel()} • {packageLabel}
+                </span>
+              </div>
             </div>
           </div>
-        )}
 
-        {status === "downloaded" && (
-          <span className="text-emerald-400">
-            Actualización <strong className="text-white">v{latestVersion}</strong> descargada y
-            lista para instalar.
-          </span>
-        )}
+          {/* Status Pill */}
+          <div className="shrink-0">
+            {status === "downloaded" ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[11px] font-medium text-emerald-300">
+                <CheckCircle2 size={12} /> Lista v{latestVersion}
+              </span>
+            ) : status === "available" ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-[11px] font-medium text-blue-200">
+                <Download size={12} /> Nueva v{latestVersion}
+              </span>
+            ) : status === "not-available" ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-[11px] font-medium text-emerald-300">
+                <CheckCircle2 size={12} /> Actualizada
+              </span>
+            ) : isChecking || isDownloading ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/15 border border-blue-400/25 text-[11px] font-medium text-blue-200">
+                <Loader2 size={12} className="animate-spin" />
+                {isDownloading ? `${progress}%` : "Comprobando"}
+              </span>
+            ) : status === "error" ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-400/30 text-[11px] font-medium text-amber-300">
+                <AlertTriangle size={12} /> Revisar
+              </span>
+            ) : null}
+          </div>
+        </div>
 
-        {status === "error" && (
-          <span className="flex items-start gap-1.5 text-amber-300 leading-relaxed">
-            <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-            <span>{updateState?.error || "No se pudo comprobar actualizaciones."}</span>
-          </span>
-        )}
+        {/* Status Message / Live Download Progress */}
+        <div className="text-xs text-white/70 bg-black/25 border border-white/10 rounded-lg p-3">
+          {isChecking && (
+            <span className="flex items-center gap-2 text-blue-300">
+              <Loader2 size={14} className="animate-spin shrink-0" />
+              Buscando nuevas versiones en GitHub Releases...
+            </span>
+          )}
 
-        {updateState?.error && status === "available" && (
-          <p className="mt-1.5 text-[11px] text-amber-300/90">{updateState.error}</p>
+          {status === "idle" && (
+            <span>
+              Comprueba si existe una versión nueva en GitHub Releases para actualizar tu app de escritorio.
+            </span>
+          )}
+
+          {status === "not-available" && (
+            <span className="flex items-center gap-2 text-emerald-300">
+              <CheckCircle2 size={14} className="shrink-0" />
+              Tienes instalada la versión más reciente disponible (v{currentVersion}).
+            </span>
+          )}
+
+          {status === "available" && (
+            <div className="space-y-1">
+              <p className="text-blue-200 font-medium">
+                Nueva versión v{latestVersion} disponible (tienes v{currentVersion}).
+              </p>
+              {updateState?.error && (
+                <p className="text-[11px] text-amber-300/90">{updateState.error}</p>
+              )}
+            </div>
+          )}
+
+          {isDownloading && (
+            <div className="space-y-2">
+              <div className="flex justify-between text-blue-200 font-medium">
+                <span>Descargando LaunchPad v{latestVersion}...</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 transition-all duration-200"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[11px] text-white/45">
+                <span>
+                  {formatBytes(transferred)} / {formatBytes(total)}
+                </span>
+                <span>{bytesPerSecond > 0 ? `${formatBytes(bytesPerSecond)}/s` : ""}</span>
+              </div>
+            </div>
+          )}
+
+          {status === "downloaded" && (
+            <span className="text-emerald-300">
+              La actualización <strong className="text-white">v{latestVersion}</strong> ya está descargada y lista para instalarse.
+            </span>
+          )}
+
+          {status === "error" && (
+            <span className="flex items-start gap-2 text-amber-300 leading-relaxed">
+              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <span>{updateState?.error || "No se pudo comprobar actualizaciones."}</span>
+            </span>
+          )}
+        </div>
+
+        {/* Action Buttons + Last Checked */}
+        <div className="flex flex-wrap items-center gap-2">
+          {status === "downloaded" ? (
+            <button
+              type="button"
+              onClick={() => void updater.installUpdate()}
+              className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
+            >
+              <RefreshCw size={14} />
+              Reiniciar e instalar v{latestVersion}
+            </button>
+          ) : status === "available" ? (
+            <button
+              type="button"
+              onClick={() => void updater.downloadUpdate()}
+              className="flex-1 py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20"
+            >
+              {canAutoInstall ? <Download size={14} /> : <ExternalLink size={14} />}
+              {canAutoInstall
+                ? `Descargar e instalar v${latestVersion}`
+                : `Descargar v${latestVersion} en GitHub`}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={isChecking || isDownloading}
+              onClick={() => void handleCheck()}
+              className="flex-1 py-2.5 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20"
+            >
+              {isChecking ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <RefreshCw size={14} />
+              )}
+              Buscar actualizaciones
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void updater.openReleasePage()}
+            className="py-2.5 px-3.5 bg-white/5 hover:bg-white/15 border border-white/10 text-white/80 hover:text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
+            title="Abrir GitHub Releases en el navegador"
+          >
+            <ExternalLink size={13} />
+            GitHub Releases
+          </button>
+        </div>
+
+        {checkedAt && (
+          <div className="flex items-center gap-1.5 text-[11px] text-white/40">
+            <Clock size={11} />
+            Última comprobación:{" "}
+            {new Date(checkedAt).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </div>
         )}
       </div>
 
-      {/* Action buttons */}
-      <div className="flex flex-wrap items-center gap-2">
-        {status === "downloaded" ? (
+      {/* Releases History Section */}
+      <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <History size={15} className="text-blue-400" />
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-white/80">
+              Historial de versiones
+            </h4>
+          </div>
           <button
             type="button"
-            onClick={() => void updater.installUpdate()}
-            className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
+            disabled={releasesLoading}
+            onClick={() => void loadReleases()}
+            className="text-[11px] text-white/45 hover:text-white flex items-center gap-1 transition-colors"
           >
-            <RefreshCw size={13} />
-            Reiniciar e instalar v{latestVersion}
+            <RefreshCw size={11} className={releasesLoading ? "animate-spin" : ""} />
+            Actualizar lista
           </button>
-        ) : status === "available" ? (
-          <button
-            type="button"
-            onClick={() => void updater.downloadUpdate()}
-            className="flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
-          >
-            {canAutoInstall ? <Download size={13} /> : <ExternalLink size={13} />}
-            {canAutoInstall
-              ? `Descargar e instalar v${latestVersion}`
-              : `Descargar v${latestVersion} en GitHub`}
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={isChecking || isDownloading}
-            onClick={() => void updater.checkForUpdates()}
-            className="flex-1 py-2 px-3 bg-white/10 hover:bg-white/15 disabled:opacity-50 border border-white/10 text-white rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
-          >
-            {isChecking ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <RefreshCw size={13} />
-            )}
-            Buscar actualizaciones
-          </button>
-        )}
+        </div>
 
-        <button
-          type="button"
-          onClick={() => void updater.openReleasePage()}
-          className="py-2 px-3 bg-black/25 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white rounded-lg text-xs transition-colors flex items-center gap-1.5"
-          title="Abrir GitHub Releases"
-        >
-          <ExternalLink size={13} />
-          Releases
-        </button>
+        {releasesLoading ? (
+          <div className="flex items-center justify-center gap-2 py-6 text-xs text-white/50">
+            <Loader2 size={14} className="animate-spin" />
+            Cargando versiones desde GitHub...
+          </div>
+        ) : releasesError ? (
+          <p className="text-xs text-amber-300/85 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+            {releasesError}
+          </p>
+        ) : releases.length === 0 ? (
+          <p className="text-xs text-white/40 text-center py-4 italic">
+            No hay lanzamientos publicados todavía en GitHub Releases.
+          </p>
+        ) : (
+          <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+            {releases.map((rel) => (
+              <div
+                key={rel.id}
+                className={`p-3 rounded-lg border transition-colors ${
+                  rel.isCurrent
+                    ? "bg-emerald-500/10 border-emerald-500/30"
+                    : "bg-black/25 border-white/10 hover:border-white/20"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Tag size={12} className="text-blue-300 shrink-0" />
+                    <span className="text-xs font-semibold text-white font-mono">
+                      {rel.tagName}
+                    </span>
+                    {rel.isCurrent && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-medium">
+                        Instalada
+                      </span>
+                    )}
+                    {rel.isLatest && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-medium">
+                        Más reciente
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {rel.publishedAt && (
+                      <span className="text-[10px] text-white/40">
+                        {formatDate(rel.publishedAt)}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void updater.openReleasePage(rel.htmlUrl)}
+                      className="p-1 rounded text-white/45 hover:text-white hover:bg-white/10 transition-colors"
+                      title="Ver lanzamiento en GitHub"
+                    >
+                      <ExternalLink size={12} />
+                    </button>
+                  </div>
+                </div>
+                {rel.body && (
+                  <p className="mt-1.5 text-[11px] text-white/55 line-clamp-2 whitespace-pre-line">
+                    {rel.body}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Optional GitHub Token for Private Repositories */}
       {updater.setToken && (
-        <div className="pt-2 border-t border-white/10 space-y-2">
+        <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10 space-y-2">
           <div className="flex items-center justify-between">
             <button
               type="button"
               onClick={() => setShowTokenInput((prev) => !prev)}
-              className="text-[11px] text-white/50 hover:text-white/90 flex items-center gap-1.5 transition-colors"
+              className="text-xs text-white/60 hover:text-white flex items-center gap-1.5 transition-colors"
             >
-              <KeyRound size={12} />
+              <KeyRound size={13} />
               {hasToken
-                ? "Token de GitHub configurado (repo privado)"
+                ? "Token de GitHub configurado (repositorio privado)"
                 : needsAuth
-                ? "Configurar Token de GitHub (repo privado)"
-                : "Repositorio privado: configurar Token (opcional)"}
+                ? "Configurar Token de GitHub (repositorio privado)"
+                : "Acceso a repositorio privado (Token opcional)"}
             </button>
             {hasToken && (
               <button
@@ -243,22 +447,27 @@ export const DesktopUpdatesSection: React.FC = () => {
           </div>
 
           {(showTokenInput || needsAuth) && (
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={tokenDraft}
-                onChange={(e) => setTokenDraft(e.target.value)}
-                placeholder="ghp_... o github_pat_... (solo lectura Contents)"
-                className="flex-1 bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
-              />
-              <button
-                type="button"
-                disabled={isSavingToken || !tokenDraft.trim()}
-                onClick={() => void handleSaveToken()}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors"
-              >
-                {isSavingToken ? "..." : "Guardar"}
-              </button>
+            <div className="space-y-1.5 pt-1">
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={tokenDraft}
+                  onChange={(e) => setTokenDraft(e.target.value)}
+                  placeholder="ghp_... o github_pat_... (solo lectura Contents)"
+                  className="flex-1 bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                />
+                <button
+                  type="button"
+                  disabled={isSavingToken || !tokenDraft.trim()}
+                  onClick={() => void handleSaveToken()}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors"
+                >
+                  {isSavingToken ? "..." : "Guardar"}
+                </button>
+              </div>
+              <p className="text-[10px] text-white/40">
+                Se guarda cifrado localmente. No es necesario si el repositorio es público.
+              </p>
             </div>
           )}
         </div>

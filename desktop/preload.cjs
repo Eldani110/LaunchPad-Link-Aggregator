@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld("launchpadDesktop", {
     downloadUpdate: () => ipcRenderer.invoke("desktop:updater:download"),
     installUpdate: () => ipcRenderer.invoke("desktop:updater:install"),
     setToken: (token) => ipcRenderer.invoke("desktop:updater:set-token", token),
+    listReleases: () => ipcRenderer.invoke("desktop:updater:list-releases"),
     openReleasePage: (url) => ipcRenderer.invoke("desktop:updater:open-release", url),
     onStatusChange: (callback) => {
       if (typeof callback !== "function") return () => {};

@@ -1,20 +1,24 @@
 
-import React, { useState, useRef, useMemo } from "react";
+import React, { useState, useRef, useMemo, useEffect } from "react";
 import { Category, IconSize } from "../types";
 import { useLaunchpad } from "../context/LaunchpadContext";
 import { 
   Plus, Trash2, Pencil, Check, X, FolderOpen, Layout, 
   Upload, Cloud, Loader2, LogOut, Grid, ChevronRight, 
-  ChevronDown, CornerDownRight, User, Download
+  ChevronDown, CornerDownRight, User, Download, Monitor
 } from "lucide-react";
 import { toast } from "sonner";
 import { DesktopUpdatesSection } from "./DesktopUpdatesSection";
+import { getDesktopUpdater, isDesktopApp } from "../services/platform";
+
+export type SettingsTab = 'categories' | 'general' | 'desktop';
 
 interface SettingsFormProps {
   currentTitle: string;
   currentBg: string;
   currentLogo: string;
   categories: Category[];
+  initialTab?: SettingsTab;
   onSaveTitle: (newTitle: string) => void;
   onSaveBg: (url: string) => void;
   onSaveLogo: (url: string) => void;
@@ -29,6 +33,7 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
   currentBg,
   currentLogo,
   categories,
+  initialTab = 'categories',
   onSaveTitle,
   onSaveBg,
   onSaveLogo,
@@ -52,7 +57,33 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
     replaceCategories
   } = useLaunchpad();
 
-  const [activeTab, setActiveTab] = useState<'general' | 'categories'>('categories');
+  const desktopMode = isDesktopApp();
+  const [activeTab, setActiveTab] = useState<SettingsTab>(
+    initialTab === 'desktop' && !desktopMode ? 'categories' : initialTab
+  );
+  const [hasPendingDesktopUpdate, setHasPendingDesktopUpdate] = useState(false);
+
+  useEffect(() => {
+    setActiveTab(initialTab === 'desktop' && !desktopMode ? 'categories' : initialTab);
+  }, [initialTab, desktopMode]);
+
+  useEffect(() => {
+    if (!desktopMode) return;
+    const updater = getDesktopUpdater();
+    if (!updater) return;
+    let active = true;
+    const syncBadge = (status?: string) => {
+      if (active) {
+        setHasPendingDesktopUpdate(status === "available" || status === "downloaded");
+      }
+    };
+    updater.getState().then((s) => syncBadge(s.status)).catch(() => {});
+    const unsub = updater.onStatusChange((s) => syncBadge(s.status));
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, [desktopMode]);
   const [appTitle, setAppTitle] = useState(currentTitle);
   const [bgUrl, setBgUrl] = useState(currentBg);
   const [logoUrl, setLogoUrl] = useState(currentLogo);
@@ -406,6 +437,21 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
         >
           <Layout size={16} /> General
         </button>
+        {desktopMode && (
+          <button
+            onClick={() => setActiveTab('desktop')}
+            className={`relative pb-2 text-sm font-medium transition-colors flex items-center gap-2 ${
+              activeTab === 'desktop'
+                ? 'text-blue-400 border-b-2 border-blue-400 -mb-2.5'
+                : 'text-white/60 hover:text-white'
+            }`}
+          >
+            <Monitor size={16} /> Escritorio
+            {hasPendingDesktopUpdate && (
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            )}
+          </button>
+        )}
       </div>
 
       {/* Tab Content: Categories */}
@@ -538,9 +584,6 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
               </div>
             </div>
 
-            {/* Desktop Auto-Update Section (visible only in Electron desktop app) */}
-            <DesktopUpdatesSection />
-
             {/* Icon Size */}
             <div className="space-y-2">
               <label className="text-xs font-medium text-gray-400 uppercase flex items-center gap-2">
@@ -652,6 +695,18 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
             </button>
           </div>
         </form>
+      )}
+
+      {/* Tab Content: Desktop Version & Updates */}
+      {activeTab === 'desktop' && desktopMode && (
+        <div className="flex-1 flex flex-col min-h-0">
+          <DesktopUpdatesSection />
+          <div className="pt-4 mt-2 border-t border-white/10 flex justify-end">
+            <button onClick={onCancel} className="text-sm text-white/70 hover:text-white">
+              Cerrar
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
