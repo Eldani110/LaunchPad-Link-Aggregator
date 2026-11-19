@@ -585,87 +585,90 @@ export const LaunchpadProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
 
     const bootstrap = async () => {
-      cleanupLegacyStorage();
-      const storedTabs = readStoredAccounts();
-      const storedActive = localStorage.getItem(STORAGE_ACTIVE_SLOT_KEY);
+      try {
+        cleanupLegacyStorage();
+        const storedTabs = readStoredAccounts();
+        const storedActive = localStorage.getItem(STORAGE_ACTIVE_SLOT_KEY);
 
-      // Case 1: No stored tab list yet — check default Firebase slot for existing single-account session
-      if (storedTabs.length === 0) {
-        const defaultUser = await firebaseService.waitForSlotUser(DEFAULT_SLOT_ID);
-        if (cancelled) return;
+        // Case 1: No stored tab list yet — check default Firebase slot for existing single-account session
+        if (storedTabs.length === 0) {
+          const defaultUser = await firebaseService.waitForSlotUser(DEFAULT_SLOT_ID);
+          if (cancelled) return;
 
-        if (defaultUser) {
-          const initialTab: AccountTab = {
-            slotId: DEFAULT_SLOT_ID,
-            uid: defaultUser.uid,
-            email: defaultUser.email || "",
-            appTitle: "LaunchPad",
-            logoImage: DEFAULT_LOGO,
-          };
-          accountsRef.current = [initialTab];
-          setAccounts([initialTab]);
-          persistAccounts([initialTab], DEFAULT_SLOT_ID);
-          await activateSlot(DEFAULT_SLOT_ID, {
-            knownUid: defaultUser.uid,
-            knownEmail: defaultUser.email || "",
-            skipFlush: true,
-          });
+          if (defaultUser) {
+            const initialTab: AccountTab = {
+              slotId: DEFAULT_SLOT_ID,
+              uid: defaultUser.uid,
+              email: defaultUser.email || "",
+              appTitle: "LaunchPad",
+              logoImage: DEFAULT_LOGO,
+            };
+            accountsRef.current = [initialTab];
+            setAccounts([initialTab]);
+            persistAccounts([initialTab], DEFAULT_SLOT_ID);
+            await activateSlot(DEFAULT_SLOT_ID, {
+              knownUid: defaultUser.uid,
+              knownEmail: defaultUser.email || "",
+              skipFlush: true,
+            });
+          }
+          return;
         }
+
+        // Case 2: Stored tabs exist — ONLY wake the active tab (fallback to next valid tab if expired)
+        let remaining = [...storedTabs];
+        const preferredSlot =
+          storedActive && remaining.some((t) => t.slotId === storedActive)
+            ? storedActive
+            : remaining[0].slotId;
+
+        // Order candidate slots: preferred first, then others only if preferred expired
+        const ordered = [
+          ...remaining.filter((t) => t.slotId === preferredSlot),
+          ...remaining.filter((t) => t.slotId !== preferredSlot),
+        ];
+
+        let activated = false;
+        for (const candidate of ordered) {
+          const user = await firebaseService.waitForSlotUser(candidate.slotId);
+          if (cancelled) return;
+
+          if (user) {
+            remaining = remaining.map((t) =>
+              t.slotId === candidate.slotId
+                ? { ...t, uid: user.uid, email: user.email || t.email }
+                : t
+            );
+            accountsRef.current = remaining;
+            setAccounts(remaining);
+            persistAccounts(remaining, candidate.slotId);
+
+            await activateSlot(candidate.slotId, {
+              knownUid: user.uid,
+              knownEmail: user.email || candidate.email,
+              skipFlush: true,
+            });
+            activated = true;
+            break;
+          } else {
+            // Session expired for this slot — clean it up and try next
+            remaining = remaining.filter((t) => t.slotId !== candidate.slotId);
+          }
+        }
+
+        if (!activated && !cancelled) {
+          accountsRef.current = [];
+          setAccounts([]);
+          activeSlotIdRef.current = null;
+          activeUidRef.current = null;
+          setActiveSlotId(null);
+          persistAccounts([], null);
+        }
+      } catch (err) {
+        console.error("Auth bootstrap error:", err);
+      } finally {
         if (!cancelled) setIsAuthReady(true);
-        return;
       }
-
-      // Case 2: Stored tabs exist — ONLY wake the active tab (fallback to next valid tab if expired)
-      let remaining = [...storedTabs];
-      const preferredSlot =
-        storedActive && remaining.some((t) => t.slotId === storedActive)
-          ? storedActive
-          : remaining[0].slotId;
-
-      // Order candidate slots: preferred first, then others only if preferred expired
-      const ordered = [
-        ...remaining.filter((t) => t.slotId === preferredSlot),
-        ...remaining.filter((t) => t.slotId !== preferredSlot),
-      ];
-
-      let activated = false;
-      for (const candidate of ordered) {
-        const user = await firebaseService.waitForSlotUser(candidate.slotId);
-        if (cancelled) return;
-
-        if (user) {
-          remaining = remaining.map((t) =>
-            t.slotId === candidate.slotId
-              ? { ...t, uid: user.uid, email: user.email || t.email }
-              : t
-          );
-          accountsRef.current = remaining;
-          setAccounts(remaining);
-          persistAccounts(remaining, candidate.slotId);
-
-          await activateSlot(candidate.slotId, {
-            knownUid: user.uid,
-            knownEmail: user.email || candidate.email,
-            skipFlush: true,
-          });
-          activated = true;
-          break;
-        } else {
-          // Session expired for this slot — clean it up and try next
-          remaining = remaining.filter((t) => t.slotId !== candidate.slotId);
-        }
-      }
-
-      if (!activated && !cancelled) {
-        accountsRef.current = [];
-        setAccounts([]);
-        activeSlotIdRef.current = null;
-        activeUidRef.current = null;
-        setActiveSlotId(null);
-        persistAccounts([], null);
-      }
-
-      if (!cancelled) setIsAuthReady(true);
     };
 
     bootstrap();

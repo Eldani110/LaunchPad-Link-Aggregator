@@ -1,15 +1,24 @@
 import { GoogleGenAI } from "@google/genai";
 import { Category } from "../types";
 
-const apiKey = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+const apiKey = process.env.API_KEY || "";
+
+let aiInstance: GoogleGenAI | null = null;
+const getAi = () => {
+  if (!apiKey) return null;
+  if (!aiInstance) {
+    aiInstance = new GoogleGenAI({ apiKey });
+  }
+  return aiInstance;
+};
 
 export const suggestCategory = async (
   url: string,
   title: string,
   existingCategories: Category[]
 ): Promise<string> => {
-  if (!apiKey || existingCategories.length === 0) return "";
+  const ai = getAi();
+  if (!ai || existingCategories.length === 0) return "";
 
   try {
     const categoriesList = existingCategories.map((c) => c.title).join(", ");
