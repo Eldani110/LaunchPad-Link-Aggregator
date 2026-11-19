@@ -3,12 +3,13 @@ import React from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Icon } from "./Icon";
-import { IconSize } from "../types";
+import { IconSize, LinkItemType } from "../types";
 
 interface SortableIconProps {
   id: string;
   title: string;
   url?: string;
+  itemType?: LinkItemType;
   customIconUrl?: string; // New prop
   onClick: () => void;
   onDelete?: () => void;

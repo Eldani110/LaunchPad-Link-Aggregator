@@ -1,7 +1,8 @@
 
 import React from "react";
 import { Category, LinkItem } from "../types";
-import { Pencil, Folder, Globe, ChevronRight, File, MoreVertical, Copy } from "lucide-react";
+import { Pencil, Folder, Globe, ChevronRight, File, MoreVertical, Copy, Monitor } from "lucide-react";
+import { getLocalAppFallbackIcon } from "../services/platform";
 
 interface ListViewProps {
   categories: Category[];
@@ -27,6 +28,7 @@ export const ListView: React.FC<ListViewProps> = ({
   // Helper to get favicon
   const getIconUrl = (link: LinkItem) => {
      if (link.customIconUrl) return link.customIconUrl;
+     if (link.itemType === "app") return getLocalAppFallbackIcon(link.title);
      return `https://www.google.com/s2/favicons?domain=${link.url}&sz=64`;
   }
 
@@ -92,7 +94,14 @@ export const ListView: React.FC<ListViewProps> = ({
           
           {/* Content */}
           <div className="flex-1 min-w-0 flex flex-col justify-center">
-              <h4 className="text-white font-medium text-sm truncate">{link.title}</h4>
+              <div className="flex items-center gap-2 min-w-0">
+                <h4 className="text-white font-medium text-sm truncate">{link.title}</h4>
+                {link.itemType === "app" && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/20 border border-blue-400/25 text-[10px] font-medium text-blue-300 shrink-0">
+                    <Monitor size={10} /> PC
+                  </span>
+                )}
+              </div>
               <span className="text-blue-300/60 text-xs truncate hover:underline block max-w-md">{link.url}</span>
           </div>
 

@@ -5,6 +5,12 @@ contextBridge.exposeInMainWorld("launchpadDesktop", {
   platform: process.platform,
   openExternal: (url) => ipcRenderer.invoke("desktop:open-external", url),
   getAppVersion: () => ipcRenderer.invoke("desktop:get-version"),
+  launcher: {
+    launch: (target, args) => ipcRenderer.invoke("desktop:launcher:launch", target, args),
+    pickApp: () => ipcRenderer.invoke("desktop:launcher:pick-app"),
+    listInstalled: (forceRefresh = false) =>
+      ipcRenderer.invoke("desktop:launcher:list-installed", forceRefresh),
+  },
   updater: {
     getState: () => ipcRenderer.invoke("desktop:updater:get-state"),
     checkForUpdates: () => ipcRenderer.invoke("desktop:updater:check"),

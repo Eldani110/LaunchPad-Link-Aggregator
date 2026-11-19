@@ -15,6 +15,8 @@ import {
   IconSize,
   LayoutMode,
   LinkItem,
+  LinkItemType,
+  TargetOS,
 } from "../types";
 import { DEFAULT_SLOT_ID } from "../services/firebase";
 import * as firebaseService from "../services/firebaseService";
@@ -38,7 +40,10 @@ interface LaunchpadContextType {
     url: string,
     customIconUrl: string | undefined,
     categoryId: string | null,
-    existingId?: string
+    existingId?: string,
+    itemType?: LinkItemType,
+    launchArgs?: string,
+    targetOs?: TargetOS
   ) => void;
   deleteLink: (id: string) => void;
   duplicateLink: (id: string) => void;
@@ -934,13 +939,28 @@ export const LaunchpadProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       url: string,
       customIconUrl: string | undefined,
       categoryId: string | null,
-      existingId?: string
+      existingId?: string,
+      itemType: LinkItemType = "web",
+      launchArgs?: string,
+      targetOs?: TargetOS
     ) => {
+      const normalizedArgs = launchArgs?.trim() || undefined;
+      const resolvedTargetOs = itemType === "app" ? targetOs || "all" : undefined;
+
       if (existingId) {
         setLinks((prev) =>
           prev.map((l) =>
             l.id === existingId
-              ? { ...l, title, url, customIconUrl, categoryId: categoryId }
+              ? {
+                  ...l,
+                  title,
+                  url,
+                  customIconUrl,
+                  categoryId: categoryId,
+                  itemType,
+                  targetOs: resolvedTargetOs,
+                  launchArgs: itemType === "app" ? normalizedArgs : undefined,
+                }
               : l
           )
         );
@@ -949,6 +969,9 @@ export const LaunchpadProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           id: uuidv4(),
           title,
           url,
+          itemType,
+          ...(resolvedTargetOs ? { targetOs: resolvedTargetOs } : {}),
+          ...(itemType === "app" && normalizedArgs ? { launchArgs: normalizedArgs } : {}),
           customIconUrl,
           categoryId: categoryId,
           createdAt: Date.now(),

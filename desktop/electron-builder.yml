@@ -9,6 +9,7 @@ files:
   - desktop/main.cjs
   - desktop/preload.cjs
   - desktop/updater.cjs
+  - desktop/launcher.cjs
   - desktop/assets/icon.png
   - package.json
   - node_modules/**/*

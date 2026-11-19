@@ -1,9 +1,15 @@
 
+export type LinkItemType = 'web' | 'app';
+export type TargetOS = 'win32' | 'linux' | 'darwin' | 'all';
+
 export interface LinkItem {
   id: string;
   title: string;
   url: string;
-  customIconUrl?: string; // Optional custom image URL
+  itemType?: LinkItemType; // Defaults to 'web'; 'app' launches local PC software on Desktop
+  targetOs?: TargetOS; // Which desktop OS displays this app ('win32' | 'linux' | 'darwin' | 'all')
+  launchArgs?: string; // Optional CLI arguments for local PC software
+  customIconUrl?: string; // Optional custom image URL or local extracted icon data URL
   categoryId?: string | null; // If null, it's on the root desktop
   createdAt: number;
 }

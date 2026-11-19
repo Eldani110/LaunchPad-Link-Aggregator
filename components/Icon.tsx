@@ -1,11 +1,13 @@
 
 import React from "react";
-import { Folder, X, Pencil } from "lucide-react";
-import { IconSize } from "../types";
+import { Folder, X, Pencil, Monitor } from "lucide-react";
+import { IconSize, LinkItemType } from "../types";
+import { getLocalAppFallbackIcon } from "../services/platform";
 
 interface IconProps {
   title: string;
   url?: string;
+  itemType?: LinkItemType;
   customIconUrl?: string; // New Prop
   onClick: () => void;
   onDelete?: () => void;
@@ -20,6 +22,7 @@ interface IconProps {
 export const Icon: React.FC<IconProps> = ({
   title,
   url,
+  itemType = 'web',
   customIconUrl,
   onClick,
   onDelete,
@@ -30,12 +33,16 @@ export const Icon: React.FC<IconProps> = ({
   isDragging = false,
   size = 'medium'
 }) => {
+  const isLocalApp = !isFolder && itemType === 'app';
+
   // Helper to get favicon
   const getFavicon = (u: string) =>
     `https://www.google.com/s2/favicons?domain=${u}&sz=128`;
   
-  // Determine display URL: Custom > Google Favicon > Placeholder logic (handled by onError)
-  const displayIconUrl = customIconUrl || (url ? getFavicon(url) : "");
+  // Determine display URL: Custom > Local App SVG fallback > Google Favicon
+  const displayIconUrl =
+    customIconUrl ||
+    (isLocalApp ? getLocalAppFallbackIcon(title) : url ? getFavicon(url) : "");
 
   // Size Configuration Maps
   const containerSizeClasses = {
@@ -156,20 +163,25 @@ export const Icon: React.FC<IconProps> = ({
               )}
             </div>
           ) : (
-            <div className="w-full h-full bg-white rounded-2xl shadow-xl overflow-hidden flex items-center justify-center transition-transform group-hover:-translate-y-1">
-               {/* Fallback image logic is handled by the browser's default behavior, but we use Google's consistent favicon service */}
+            <div className={`relative w-full h-full rounded-2xl shadow-xl overflow-hidden flex items-center justify-center transition-transform group-hover:-translate-y-1 ${isLocalApp ? "bg-slate-900/90 border border-white/15" : "bg-white"}`}>
               <img
                 src={displayIconUrl}
                 alt={title}
-                className="w-full h-full object-cover"
+                className={`w-full h-full ${isLocalApp && customIconUrl ? "object-contain p-1.5" : "object-cover"}`}
                 onError={(e) => {
                   // Local inline SVG fallback (no external placeholder dependency)
-                  const initial = (title.trim().charAt(0) || "?").toUpperCase().replace(/[<>&"']/g, "");
-                  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" fill="#1e293b"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="56" font-weight="600">${initial}</text></svg>`;
                   e.currentTarget.onerror = null;
-                  e.currentTarget.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+                  e.currentTarget.src = getLocalAppFallbackIcon(title);
                 }}
               />
+              {isLocalApp && (
+                <span
+                  className="absolute bottom-1 right-1 p-1 rounded-md bg-gray-950/85 border border-white/15 text-blue-300 shadow"
+                  title="Programa del PC"
+                >
+                  <Monitor size={size === "small" ? 9 : 11} />
+                </span>
+              )}
             </div>
           )}
         </div>

@@ -1,14 +1,20 @@
 const { app, BrowserWindow, Menu, ipcMain, net, protocol, shell } = require("electron");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { pathToFileURL } = require("url");
 const { initUpdater } = require("./updater.cjs");
+const { initLauncher } = require("./launcher.cjs");
 
 const APP_SCHEME = "app";
 const APP_HOST = "launchpad";
 const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
 const DEV_URL = process.env.LAUNCHPAD_DEV_URL || "";
 const IS_SMOKE_TEST = process.env.LAUNCHPAD_SMOKE_TEST === "1";
+
+if (IS_SMOKE_TEST) {
+  app.setPath("userData", path.join(os.tmpdir(), `launchpad-smoke-${process.pid}`));
+}
 
 const DIST_DIR = path.resolve(__dirname, "..", "dist");
 const PRELOAD_PATH = path.join(__dirname, "preload.cjs");
@@ -284,6 +290,7 @@ function createMainWindow() {
             origin: window.location.origin,
             hasDesktopBridge: Boolean(window.launchpadDesktop && window.launchpadDesktop.isDesktop),
             hasUpdaterBridge: Boolean(window.launchpadDesktop && window.launchpadDesktop.updater),
+            hasLauncherBridge: Boolean(window.launchpadDesktop && window.launchpadDesktop.launcher),
             platform: window.launchpadDesktop ? window.launchpadDesktop.platform : null,
             rootChildCount: root ? root.childElementCount : 0,
             stylesheetCount: stylesheets.length,
@@ -297,6 +304,7 @@ function createMainWindow() {
           report.origin === APP_ORIGIN &&
           report.hasDesktopBridge &&
           report.hasUpdaterBridge &&
+          report.hasLauncherBridge &&
           report.rootChildCount > 0 &&
           report.stylesheetCount > 0 &&
           report.externalScripts.length === 0;
@@ -338,6 +346,9 @@ if (!hasLock) {
     updaterController = initUpdater({
       getMainWindow: () => mainWindow,
       skipAutoCheck: IS_SMOKE_TEST,
+    });
+    initLauncher({
+      getMainWindow: () => mainWindow,
     });
     buildApplicationMenu();
     createMainWindow();

@@ -15,7 +15,13 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { AccountTabsBar } from "../components/AccountTabsBar";
 import { ChevronRight, Home as HomeIcon, Settings, Cloud, Loader2, Trash2, LayoutGrid, List as ListIcon, AlertCircle, Menu, Share2, Copy } from "lucide-react";
 import { toast } from "sonner";
-import { openExternalLink } from "../services/platform";
+import {
+  getLocalAppFallbackIcon,
+  isDesktopApp,
+  isLinkVisibleOnCurrentPlatform,
+  launchDesktopApp,
+  openExternalLink,
+} from "../services/platform";
 import {
   DndContext,
   closestCenter,
@@ -156,7 +162,20 @@ export const Home = () => {
     }
   };
 
-  const handleLinkClick = (link: LinkItem) => {
+  const handleLinkClick = async (link: LinkItem) => {
+    if (link.itemType === "app") {
+      if (!isDesktopApp()) {
+        toast.info(`"${link.title}" es un programa del PC. Ábrelo desde LaunchPad Escritorio.`);
+        return;
+      }
+      const result = await launchDesktopApp(link.url, link.launchArgs);
+      if (result.ok) {
+        toast.success(`Abriendo ${link.title}...`);
+      } else {
+        toast.error(result.error || `No se pudo abrir "${link.title}".`);
+      }
+      return;
+    }
     openExternalLink(link.url);
   };
 
@@ -285,11 +304,9 @@ export const Home = () => {
 
     if (oldLinkIndex !== -1 && newLinkIndex !== -1) {
         const newOrderedLinks = arrayMove(currentLevelLinks, oldLinkIndex, newLinkIndex);
-        const unrelatedLinks = links.filter(l => {
-            const c = l.categoryId || null;
-            const a = activeFolderId || null;
-            return c !== a;
-        });
+        // Keep all other folders AND apps hidden for other operating systems intact
+        const visibleLinkIds = new Set(currentLevelLinks.map(l => l.id));
+        const unrelatedLinks = links.filter(l => !visibleLinkIds.has(l.id));
         replaceLinks([...unrelatedLinks, ...newOrderedLinks]);
     }
   };
@@ -319,27 +336,31 @@ export const Home = () => {
   const visibleLinks = links.filter(l => {
       const c = l.categoryId || null;
       const a = activeFolderId || null;
-      return c === a;
+      return c === a && isLinkVisibleOnCurrentPlatform(l);
   });
   
   const breadcrumbs = getBreadcrumbs();
 
   const getIconUrl = (link: LinkItem) => {
-     return link.customIconUrl || `https://www.google.com/s2/favicons?domain=${link.url}&sz=128`;
+     if (link.customIconUrl) return link.customIconUrl;
+     if (link.itemType === "app") return getLocalAppFallbackIcon(link.title);
+     return `https://www.google.com/s2/favicons?domain=${link.url}&sz=128`;
   };
 
   const getDragOverlayItem = () => {
     if (!activeDragId) return null;
     const cat = categories.find(c => c.id === activeDragId);
     if (cat) {
-        const catLinks = links.filter(l => l.categoryId === cat.id);
+        const catLinks = links.filter(
+          l => l.categoryId === cat.id && isLinkVisibleOnCurrentPlatform(l)
+        );
         const previewIcons = catLinks.map(getIconUrl);
         const subCatCount = categories.filter(c => c.parentId === cat.id).length;
         return <Icon title={cat.title} isFolder subIcons={previewIcons} itemCount={catLinks.length + subCatCount} onClick={()=>{}} isDragging size={iconSize} />;
     }
     const link = links.find(l => l.id === activeDragId);
     if (link) {
-        return <Icon title={link.title} url={link.url} customIconUrl={link.customIconUrl} onClick={()=>{}} isDragging size={iconSize} />;
+        return <Icon title={link.title} url={link.url} itemType={link.itemType} customIconUrl={link.customIconUrl} onClick={()=>{}} isDragging size={iconSize} />;
     }
     return null;
   };
@@ -350,11 +371,16 @@ export const Home = () => {
     const subFolderCounts = new Map<string, number>();
 
     for (const l of links) {
-      if (!l.categoryId) continue;
+      if (!l.categoryId || !isLinkVisibleOnCurrentPlatform(l)) continue;
       linkCounts.set(l.categoryId, (linkCounts.get(l.categoryId) || 0) + 1);
       const previews = previewMap.get(l.categoryId) || [];
       if (previews.length < 4) {
-        previews.push(l.customIconUrl || `https://www.google.com/s2/favicons?domain=${l.url}&sz=128`);
+        previews.push(
+          l.customIconUrl ||
+            (l.itemType === "app"
+              ? getLocalAppFallbackIcon(l.title)
+              : `https://www.google.com/s2/favicons?domain=${l.url}&sz=128`)
+        );
         previewMap.set(l.categoryId, previews);
       }
     }
@@ -573,6 +599,7 @@ export const Home = () => {
                                     id={link.id}
                                     title={link.title}
                                     url={link.url}
+                                    itemType={link.itemType}
                                     customIconUrl={link.customIconUrl}
                                     onClick={() => handleLinkClick(link)}
                                     onEdit={() => handleEditClick(link)}
@@ -645,21 +672,21 @@ export const Home = () => {
                 </div>
             </GlassModal>
 
-            {/* Link Edit Modal */}
+            {/* Link / App Edit Modal */}
             <GlassModal
                 isOpen={isLinkModalOpen}
                 onClose={() => {
                 setIsLinkModalOpen(false);
                 setEditingLink(null);
                 }}
-                title={editingLink ? "Editar Enlace" : "Agregar Enlace"}
+                title={editingLink ? "Editar Acceso" : "Agregar Acceso"}
             >
                 <AddEditForm
                 categories={categories}
                 initialData={editingLink}
                 currentFolderId={activeFolderId}
-                onSave={(t, u, cIcon, cId) => {
-                    saveLink(t, u, cIcon, cId, editingLink?.id);
+                onSave={(t, u, cIcon, cId, itemType, launchArgs, targetOs) => {
+                    saveLink(t, u, cIcon, cId, editingLink?.id, itemType, launchArgs, targetOs);
                     setIsLinkModalOpen(false);
                     setEditingLink(null);
                 }}

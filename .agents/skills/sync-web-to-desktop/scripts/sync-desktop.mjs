@@ -92,6 +92,7 @@ const requiredDesktopFiles = [
   "desktop/main.cjs",
   "desktop/preload.cjs",
   "desktop/updater.cjs",
+  "desktop/launcher.cjs",
   "desktop/electron-builder.yml",
   "desktop/assets/icon.png",
   "desktop/assets/icon.ico",
