@@ -1,7 +1,7 @@
 {
   "name": "launchpad-link-aggregator",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "LaunchPad",
   "desktopName": "launchpad.desktop",
   "description": "LaunchPad Agregador de enlaces con interfaz local multiplataforma y sincronización en Firebase",

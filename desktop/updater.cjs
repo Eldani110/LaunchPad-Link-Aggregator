@@ -217,7 +217,8 @@ function initUpdater({ getMainWindow, skipAutoCheck = false }) {
   }
 
   function configureAutoUpdaterFeed() {
-    autoUpdater.autoDownload = false;
+    // Download updates automatically in the background whenever native auto-install is supported
+    autoUpdater.autoDownload = nativeCapable;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.allowPrerelease = false;
 
@@ -360,12 +361,16 @@ function initUpdater({ getMainWindow, skipAutoCheck = false }) {
       ? `${GITHUB_RELEASES_PAGE}/tag/v${version}`
       : GITHUB_RELEASES_PAGE;
     setState({
-      status: "available",
+      status: nativeCapable ? "downloading" : "available",
       latestVersion: version || null,
       releaseName: info?.releaseName || (version ? `v${version}` : null),
       releaseNotes: normalizeReleaseNotes(info?.releaseNotes),
       releaseUrl,
       downloadUrl: releaseUrl,
+      progress: 0,
+      bytesPerSecond: 0,
+      transferred: 0,
+      total: 0,
       canAutoInstall: nativeCapable,
       needsAuth: false,
       checkedAt: Date.now(),
