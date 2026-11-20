@@ -107,13 +107,19 @@ export const Login: React.FC = () => {
     <div
       className={`relative w-full overflow-hidden font-sans text-slate-100 flex items-center justify-center ${
         isLauncherMode
-          ? "h-screen bg-transparent p-1.5"
+          ? "h-screen bg-transparent p-0"
           : "min-h-screen bg-gray-900 p-4"
       }`}
     >
       {/* Background (full wallpaper in normal/web mode; rounded translucent shell in floating launcher mode) */}
       {isLauncherMode ? (
-        <div className="electron-drag absolute inset-1.5 z-0 rounded-[26px] bg-slate-900/80 backdrop-blur-3xl border border-white/20 shadow-2xl">
+        <div
+          className="electron-drag absolute inset-0 z-0 rounded-[22px] bg-neutral-900/55"
+          style={{
+            boxShadow:
+              "inset 0 0.75px 0 0 rgba(255, 255, 255, 0.34), inset 0 0 0 0.75px rgba(255, 255, 255, 0.14)",
+          }}
+        >
           <button
             type="button"
             onClick={() => void getDesktopWindow()?.hide()}

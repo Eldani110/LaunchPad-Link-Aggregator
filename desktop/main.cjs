@@ -11,6 +11,7 @@ const {
   screen,
   shell,
 } = require("electron");
+const { execFile } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -23,6 +24,40 @@ const APP_HOST = "launchpad";
 const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
 const DEV_URL = process.env.LAUNCHPAD_DEV_URL || "";
 const IS_SMOKE_TEST = process.env.LAUNCHPAD_SMOKE_TEST === "1";
+
+const IS_KDE_LINUX =
+  process.platform === "linux" &&
+  (process.env.XDG_CURRENT_DESKTOP || "").toUpperCase().includes("KDE");
+
+// On KDE Plasma Wayland, running through XWayland (--ozone-platform=x11) enables:
+// 1. Native 60 FPS GPU KWin Gaussian blur behind the window (_KDE_NET_WM_BLUR_BEHIND_REGION)
+// 2. Reliable global shortcuts (Alt+Space) across all apps
+// 3. Exact active-monitor centering (win.setPosition)
+const NEEDS_KDE_X11_RELAUNCH =
+  !IS_SMOKE_TEST &&
+  IS_KDE_LINUX &&
+  Boolean(process.env.DISPLAY) &&
+  process.env.XDG_SESSION_TYPE === "wayland" &&
+  process.env.LAUNCHPAD_X11_RELAUNCHED !== "1" &&
+  !process.argv.some((a) => a.startsWith("--ozone-platform=x11"));
+
+if (NEEDS_KDE_X11_RELAUNCH) {
+  process.env.ELECTRON_OZONE_PLATFORM_HINT = "x11";
+  process.env.LAUNCHPAD_X11_RELAUNCHED = "1";
+  app.relaunch({
+    args: [...process.argv.slice(1), "--ozone-platform=x11"],
+  });
+  app.exit(0);
+}
+
+const USING_X11_ON_LINUX =
+  process.platform === "linux" &&
+  Boolean(process.env.DISPLAY) &&
+  (process.env.XDG_SESSION_TYPE === "x11" ||
+    process.env.ELECTRON_OZONE_PLATFORM_HINT === "x11" ||
+    process.argv.some((a) => a.startsWith("--ozone-platform=x11")));
+
+const HAS_KDE_NATIVE_BLUR = IS_KDE_LINUX && USING_X11_ON_LINUX;
 
 if (IS_SMOKE_TEST) {
   app.setPath("userData", path.join(os.tmpdir(), `launchpad-smoke-${process.pid}`));
@@ -82,6 +117,76 @@ function isWindows11() {
   }
 }
 
+function hasNativeOsBlur() {
+  return process.platform === "darwin" || isWindows11() || HAS_KDE_NATIVE_BLUR;
+}
+
+/**
+ * Builds an exact 15-rectangle (60 cardinals, <= 64 xprop limit) rounded-corner
+ * blur region so KWin GPU-blurs ONLY inside the rounded glass card.
+ */
+function buildRoundedBlurRegion(w, h, radius = 22) {
+  const rad = Math.min(radius, Math.floor(w / 2), Math.floor(h / 2));
+  const steps = 7;
+  const rects = [];
+
+  for (let i = 0; i < steps; i++) {
+    const y0 = Math.round((i * rad) / steps);
+    const y1 = Math.round(((i + 1) * rad) / steps);
+    const bandH = Math.max(1, y1 - y0);
+    const yMid = rad - (y0 + bandH / 2);
+    const dx = Math.ceil(rad - Math.sqrt(Math.max(0, rad * rad - yMid * yMid)));
+    rects.push(dx, y0, Math.max(1, w - dx * 2), bandH);
+  }
+
+  rects.push(0, rad, w, Math.max(1, h - rad * 2));
+
+  for (let i = 0; i < steps; i++) {
+    const y0 = Math.round((i * rad) / steps);
+    const y1 = Math.round(((i + 1) * rad) / steps);
+    const bandH = Math.max(1, y1 - y0);
+    const yMid = y0 + bandH / 2;
+    const dx = Math.ceil(rad - Math.sqrt(Math.max(0, rad * rad - yMid * yMid)));
+    rects.push(dx, h - rad + y0, Math.max(1, w - dx * 2), bandH);
+  }
+
+  return rects.join(",");
+}
+
+function applyKdeBlurRegion(win) {
+  if (!HAS_KDE_NATIVE_BLUR || !win || win.isDestroyed()) return;
+  if (desktopPrefs?.windowMode !== "launcher") return;
+  try {
+    const buf = win.getNativeWindowHandle();
+    if (!buf || buf.length < 4) return;
+    const xid = buf.readUInt32LE(0);
+    if (!xid || xid <= 1) return;
+
+    const [w, h] = win.getContentSize();
+    const region = buildRoundedBlurRegion(w, h, 22);
+    execFile(
+      "xprop",
+      [
+        "-id",
+        String(xid),
+        "-f",
+        "_KDE_NET_WM_BLUR_BEHIND_REGION",
+        "32c",
+        "-set",
+        "_KDE_NET_WM_BLUR_BEHIND_REGION",
+        region,
+      ],
+      (err) => {
+        if (err) {
+          console.warn("Could not apply KWin blur region:", err.message);
+        }
+      }
+    );
+  } catch (err) {
+    console.warn("applyKdeBlurRegion failed:", err?.message || err);
+  }
+}
+
 function getDefaultDesktopPrefs() {
   return {
     windowMode: "launcher", // "launcher" (floating Spotlight/Apps glass panel) | "window" (standard window)
@@ -89,7 +194,7 @@ function getDefaultDesktopPrefs() {
     autoHideOnBlur: true,
     autoHideOnLaunch: true,
     openAtLogin: false,
-    glassOpacity: process.platform === "darwin" ? 0.28 : 0.56,
+    glassOpacity: hasNativeOsBlur() ? 0.34 : 0.62,
   };
 }
 
@@ -100,7 +205,7 @@ function loadDesktopPrefs() {
     const parsed = JSON.parse(raw);
     const parsedOpacity =
       typeof parsed.glassOpacity === "number" && Number.isFinite(parsed.glassOpacity)
-        ? Math.min(0.88, Math.max(0.15, parsed.glassOpacity))
+        ? Math.min(0.88, Math.max(0.10, parsed.glassOpacity))
         : defaults.glassOpacity;
     return {
       windowMode: parsed.windowMode === "window" ? "window" : "launcher",
@@ -139,6 +244,7 @@ function saveDesktopPrefs(next) {
 function getPrefsPayload() {
   return {
     ...desktopPrefs,
+    hasNativeBlur: hasNativeOsBlur(),
     registeredShortcut,
     shortcutError,
   };
@@ -299,6 +405,9 @@ function showMainWindow() {
   }
 
   mainWindow.focus();
+  if (HAS_KDE_NATIVE_BLUR && desktopPrefs.windowMode === "launcher") {
+    setTimeout(() => applyKdeBlurRegion(mainWindow), 40);
+  }
   if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
     mainWindow.webContents.send("desktop:window:shown");
   }
@@ -633,12 +742,26 @@ function createMainWindow({ showImmediately = true } = {}) {
   });
 
   let saveTimer = null;
+  let blurResizeTimer = null;
   const scheduleSave = () => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => saveWindowState(win), 300);
   };
+  const scheduleBlurRegion = () => {
+    if (!HAS_KDE_NATIVE_BLUR || desktopPrefs?.windowMode !== "launcher") return;
+    if (blurResizeTimer) clearTimeout(blurResizeTimer);
+    blurResizeTimer = setTimeout(() => applyKdeBlurRegion(win), 80);
+  };
 
-  win.on("resize", scheduleSave);
+  win.on("resize", () => {
+    scheduleSave();
+    scheduleBlurRegion();
+  });
+  win.on("show", () => {
+    if (HAS_KDE_NATIVE_BLUR && desktopPrefs?.windowMode === "launcher") {
+      setTimeout(() => applyKdeBlurRegion(win), 50);
+    }
+  });
   win.on("move", scheduleSave);
   win.on("maximize", scheduleSave);
   win.on("unmaximize", scheduleSave);
@@ -725,7 +848,7 @@ async function updateDesktopPrefs(patch) {
       : {}),
     ...(typeof patch.openAtLogin === "boolean" ? { openAtLogin: patch.openAtLogin } : {}),
     ...(typeof patch.glassOpacity === "number" && Number.isFinite(patch.glassOpacity)
-      ? { glassOpacity: Math.min(0.88, Math.max(0.15, patch.glassOpacity)) }
+      ? { glassOpacity: Math.min(0.88, Math.max(0.10, patch.glassOpacity)) }
       : {}),
   };
 

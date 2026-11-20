@@ -92,6 +92,7 @@ export interface DesktopWindowPrefs {
   autoHideOnLaunch: boolean;
   openAtLogin: boolean;
   glassOpacity?: number;
+  hasNativeBlur?: boolean;
   registeredShortcut: string | null;
   shortcutError: string | null;
 }
@@ -227,6 +228,23 @@ export const getDesktopLauncher = (): DesktopLauncherBridge | null => {
 export const getDesktopWindow = (): DesktopWindowBridge | null => {
   if (!isDesktopApp()) return null;
   return window.launchpadDesktop?.window ?? null;
+};
+
+export const formatShortcutLabel = (accelerator: string | null | undefined): string => {
+  if (!accelerator) return "";
+  const isMac = getDesktopPlatform() === "darwin";
+  if (isMac) {
+    return accelerator
+      .replace(/CommandOrControl/gi, "⌘")
+      .replace(/Command|Cmd/gi, "⌘")
+      .replace(/Control|Ctrl/gi, "⌃")
+      .replace(/Shift/gi, "⇧")
+      .replace(/Alt|Option/gi, "⌥")
+      .replace(/\+/g, "");
+  }
+  return accelerator
+    .replace(/CommandOrControl/gi, "Ctrl")
+    .replace(/Control/gi, "Ctrl");
 };
 
 export const launchDesktopApp = async (

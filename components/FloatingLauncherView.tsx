@@ -22,6 +22,7 @@ import { AddAccountModal } from "./AddAccountModal";
 import {
   DesktopUpdateState,
   DesktopWindowPrefs,
+  formatShortcutLabel,
   getDesktopPlatform,
   getDesktopWindow,
   getLocalAppFallbackIcon,
@@ -78,12 +79,13 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
 
   const platform = getDesktopPlatform();
   const isMac = platform === "darwin";
+  const hasNativeBlur = Boolean(desktopPrefs.hasNativeBlur);
   const glassOpacity =
     typeof desktopPrefs.glassOpacity === "number"
       ? desktopPrefs.glassOpacity
-      : isMac
-      ? 0.28
-      : 0.56;
+      : hasNativeBlur
+      ? 0.34
+      : 0.62;
 
   // Pause auto-hide while AddAccountModal is open
   useEffect(() => {
@@ -280,24 +282,24 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
     void getDesktopWindow()?.updatePrefs({ windowMode: "window" });
   };
 
-  // Warm-neutral macOS Tahoe Liquid Glass tint (luminous smoky glass instead of flat dark gray)
+  // Authentic macOS Tahoe Liquid Glass material:
+  // When native OS GPU blur is active (macOS vibrancy, Win11 acrylic, KDE KWin blur),
+  // keep the tint clean & subtle with a single razor-thin specular rim (no harsh double outline).
   const glassTintStyle: React.CSSProperties = {
-    backgroundColor: isMac
-      ? `rgba(42, 44, 52, ${glassOpacity})`
-      : `rgba(38, 41, 49, ${glassOpacity})`,
+    backgroundColor: `rgba(30, 32, 38, ${glassOpacity})`,
     boxShadow:
-      "0 28px 80px rgba(0, 0, 0, 0.55), inset 0 1px 1px rgba(255, 255, 255, 0.48), inset 0 -1px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.16)",
+      "inset 0 0.75px 0 0 rgba(255, 255, 255, 0.34), inset 0 -0.5px 0 0 rgba(255, 255, 255, 0.08), inset 0 0 0 0.75px rgba(255, 255, 255, 0.14)",
   };
 
   return (
-    <div className="h-screen w-screen bg-transparent p-2.5 select-none">
-      {/* Main macOS Liquid Glass Floating Panel */}
+    <div className="h-screen w-screen bg-transparent overflow-hidden select-none">
+      {/* Main macOS Liquid Glass Floating Panel (fills 100% of window so native OS blur matches exact rounded corners) */}
       <div
         style={glassTintStyle}
-        className="relative isolate h-full w-full rounded-[28px] border border-white/25 overflow-hidden flex flex-col text-white"
+        className="relative isolate h-full w-full rounded-[22px] overflow-hidden flex flex-col text-white"
       >
-        {/* Subtle atmospheric blurred wallpaper veil (gives authentic frosted color depth on Linux/Windows) */}
-        {!isMac && backgroundImage && (
+        {/* Fallback blurred wallpaper aura ONLY when OS lacks native compositor blur */}
+        {!hasNativeBlur && backgroundImage && (
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 z-0 bg-cover bg-center scale-125 blur-3xl saturate-150 transition-opacity duration-500"
@@ -308,20 +310,21 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
           />
         )}
 
-        {/* Liquid Glass Specular Sheen Gradient */}
+        {/* Subtle Liquid Glass Top Specular Sheen */}
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 z-0"
           style={{
-            background:
-              "linear-gradient(150deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.07) 26%, rgba(255,255,255,0.01) 60%, rgba(255,255,255,0.10) 100%)",
+            background: hasNativeBlur
+              ? "linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.02) 22%, rgba(0,0,0,0.00) 60%, rgba(0,0,0,0.08) 100%)"
+              : "linear-gradient(150deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.05) 26%, rgba(255,255,255,0.01) 60%, rgba(255,255,255,0.08) 100%)",
           }}
         />
 
-        {/* Micro-Frosted Glass Grain Texture */}
+        {/* Delicate Frosted Grain Texture */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-0 opacity-[0.05] mix-blend-overlay"
+          className="pointer-events-none absolute inset-0 z-0 opacity-[0.03] mix-blend-overlay"
           style={{ backgroundImage: FROST_NOISE_DATA_URI }}
         />
 
@@ -724,7 +727,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
           <div className="flex items-center gap-3">
             {desktopPrefs.registeredShortcut && (
               <span className="hidden sm:inline text-[10px] px-2 py-0.5 rounded-full bg-white/[0.1] font-mono text-white/60">
-                {desktopPrefs.registeredShortcut}
+                {formatShortcutLabel(desktopPrefs.registeredShortcut)}
               </span>
             )}
             <button
