@@ -71,6 +71,17 @@ function getDesktopPrefsPath() {
   return path.join(app.getPath("userData"), "desktop-prefs.json");
 }
 
+function isWindows11() {
+  if (process.platform !== "win32") return false;
+  try {
+    const parts = os.release().split(".");
+    const build = parseInt(parts[2] || "0", 10);
+    return build >= 22000;
+  } catch {
+    return false;
+  }
+}
+
 function getDefaultDesktopPrefs() {
   return {
     windowMode: "launcher", // "launcher" (floating Spotlight/Apps glass panel) | "window" (standard window)
@@ -78,6 +89,7 @@ function getDefaultDesktopPrefs() {
     autoHideOnBlur: true,
     autoHideOnLaunch: true,
     openAtLogin: false,
+    glassOpacity: process.platform === "darwin" ? 0.28 : 0.56,
   };
 }
 
@@ -86,6 +98,10 @@ function loadDesktopPrefs() {
   try {
     const raw = fs.readFileSync(getDesktopPrefsPath(), "utf8");
     const parsed = JSON.parse(raw);
+    const parsedOpacity =
+      typeof parsed.glassOpacity === "number" && Number.isFinite(parsed.glassOpacity)
+        ? Math.min(0.88, Math.max(0.15, parsed.glassOpacity))
+        : defaults.glassOpacity;
     return {
       windowMode: parsed.windowMode === "window" ? "window" : "launcher",
       shortcut:
@@ -102,6 +118,7 @@ function loadDesktopPrefs() {
         typeof parsed.openAtLogin === "boolean"
           ? parsed.openAtLogin
           : defaults.openAtLogin,
+      glassOpacity: parsedOpacity,
     };
   } catch {
     return defaults;
@@ -503,6 +520,8 @@ function createMainWindow({ showImmediately = true } = {}) {
     spellcheck: true,
   };
 
+  const win11Acrylic = isWindows11();
+
   const windowOptions = isLauncher
     ? {
         width: LAUNCHER_DEFAULT_WIDTH,
@@ -511,7 +530,7 @@ function createMainWindow({ showImmediately = true } = {}) {
         minHeight: 440,
         title: "LaunchPad",
         frame: false,
-        transparent: true,
+        transparent: !win11Acrylic,
         backgroundColor: "#00000000",
         hasShadow: true,
         roundedCorners: true,
@@ -523,8 +542,13 @@ function createMainWindow({ showImmediately = true } = {}) {
         icon: fs.existsSync(ICON_PATH) ? ICON_PATH : undefined,
         ...(process.platform === "darwin"
           ? {
-              vibrancy: "hud",
+              vibrancy: "under-window",
               visualEffectState: "active",
+            }
+          : {}),
+        ...(win11Acrylic
+          ? {
+              backgroundMaterial: "acrylic",
             }
           : {}),
         webPreferences: basePrefs,
@@ -700,6 +724,9 @@ async function updateDesktopPrefs(patch) {
       ? { autoHideOnLaunch: patch.autoHideOnLaunch }
       : {}),
     ...(typeof patch.openAtLogin === "boolean" ? { openAtLogin: patch.openAtLogin } : {}),
+    ...(typeof patch.glassOpacity === "number" && Number.isFinite(patch.glassOpacity)
+      ? { glassOpacity: Math.min(0.88, Math.max(0.15, patch.glassOpacity)) }
+      : {}),
   };
 
   saveDesktopPrefs(next);

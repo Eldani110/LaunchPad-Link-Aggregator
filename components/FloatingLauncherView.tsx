@@ -42,6 +42,9 @@ interface FloatingLauncherViewProps {
   hasModalOpen: boolean;
 }
 
+// Micro-frosted SVG noise (local inline data URI) for authentic macOS etched glass texture
+const FROST_NOISE_DATA_URI = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E")`;
+
 export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
   activeFolderId,
   setActiveFolderId,
@@ -58,6 +61,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
   const {
     links,
     categories,
+    backgroundImage,
     accounts,
     activeSlotId,
     switchAccount,
@@ -74,8 +78,14 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
 
   const platform = getDesktopPlatform();
   const isMac = platform === "darwin";
+  const glassOpacity =
+    typeof desktopPrefs.glassOpacity === "number"
+      ? desktopPrefs.glassOpacity
+      : isMac
+      ? 0.28
+      : 0.56;
 
-  // Pause auto-hide while local popover menus or AddAccountModal are open
+  // Pause auto-hide while AddAccountModal is open
   useEffect(() => {
     const winBridge = getDesktopWindow();
     if (!winBridge || !isAddAccountOpen) return;
@@ -179,15 +189,12 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
 
   const normalizedQuery = query.trim().toLowerCase();
 
-  // When searching: filter across ALL categories & links globally; otherwise show current level
   const displayedCategories = useMemo(() => {
     if (normalizedQuery) {
       return categories.filter((c) =>
         c.title.toLowerCase().includes(normalizedQuery)
       );
     }
-    // In root view, categories already appear in the horizontal pill bar,
-    // while subfolders appear inside the grid when inside a category
     if (!activeFolderId) {
       return [];
     }
@@ -203,7 +210,6 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
       );
     }
     if (!activeFolderId) {
-      // On root "Todas": show root links first, then all links so everything is 1 click away just like macOS Apps
       const rootLinks = platformVisibleLinks.filter((l) => !l.categoryId);
       const categorizedLinks = platformVisibleLinks.filter((l) => Boolean(l.categoryId));
       return [...rootLinks, ...categorizedLinks];
@@ -274,29 +280,64 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
     void getDesktopWindow()?.updatePrefs({ windowMode: "window" });
   };
 
+  // Warm-neutral macOS Tahoe Liquid Glass tint (luminous smoky glass instead of flat dark gray)
+  const glassTintStyle: React.CSSProperties = {
+    backgroundColor: isMac
+      ? `rgba(42, 44, 52, ${glassOpacity})`
+      : `rgba(38, 41, 49, ${glassOpacity})`,
+    boxShadow:
+      "0 28px 80px rgba(0, 0, 0, 0.55), inset 0 1px 1px rgba(255, 255, 255, 0.48), inset 0 -1px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.16)",
+  };
+
   return (
-    <div className="h-screen w-screen bg-transparent p-1.5 select-none">
-      {/* Main Translucent Floating Glass Panel (macOS Apps / Spotlight style) */}
+    <div className="h-screen w-screen bg-transparent p-2.5 select-none">
+      {/* Main macOS Liquid Glass Floating Panel */}
       <div
-        className={`relative h-full w-full rounded-[26px] border border-white/20 shadow-[0_24px_70px_rgba(0,0,0,0.65)] overflow-hidden flex flex-col text-slate-100 ${
-          isMac
-            ? "bg-slate-900/50 backdrop-blur-3xl"
-            : "bg-slate-900/82 backdrop-blur-3xl"
-        }`}
+        style={glassTintStyle}
+        className="relative isolate h-full w-full rounded-[28px] border border-white/25 overflow-hidden flex flex-col text-white"
       >
-        {/* Top Search Bar (draggable window handle) */}
-        <div className="electron-drag px-5 pt-4 pb-3 flex items-center gap-3 border-b border-white/10">
-          <div className="w-8 h-8 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center text-white/80 shrink-0">
-            <Search size={17} />
-          </div>
+        {/* Subtle atmospheric blurred wallpaper veil (gives authentic frosted color depth on Linux/Windows) */}
+        {!isMac && backgroundImage && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-0 bg-cover bg-center scale-125 blur-3xl saturate-150 transition-opacity duration-500"
+            style={{
+              backgroundImage: `url('${backgroundImage}')`,
+              opacity: Math.min(0.38, Math.max(0.16, glassOpacity * 0.52)),
+            }}
+          />
+        )}
+
+        {/* Liquid Glass Specular Sheen Gradient */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0"
+          style={{
+            background:
+              "linear-gradient(150deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.07) 26%, rgba(255,255,255,0.01) 60%, rgba(255,255,255,0.10) 100%)",
+          }}
+        />
+
+        {/* Micro-Frosted Glass Grain Texture */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0 opacity-[0.05] mix-blend-overlay"
+          style={{ backgroundImage: FROST_NOISE_DATA_URI }}
+        />
+
+        <div className="relative z-10 flex flex-col h-full min-h-0">
+
+        {/* Top Search Bar (seamless macOS Tahoe style — no heavy horizontal divider) */}
+        <div className="electron-drag px-6 pt-5 pb-2.5 flex items-center gap-3">
+          <Search size={20} className="text-white/75 shrink-0 drop-shadow" />
 
           <input
             ref={searchInputRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Apps y enlaces..."
-            className="electron-no-drag flex-1 bg-transparent text-2xl font-light text-white placeholder-white/40 focus:outline-none tracking-tight"
+            placeholder="Apps"
+            className="electron-no-drag flex-1 bg-transparent text-[26px] leading-none font-light text-white placeholder-white/55 focus:outline-none tracking-tight drop-shadow-sm"
           />
 
           {query && (
@@ -306,7 +347,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                 setQuery("");
                 searchInputRef.current?.focus();
               }}
-              className="electron-no-drag p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-colors"
+              className="electron-no-drag p-1.5 rounded-full bg-white/15 hover:bg-white/25 text-white/80 hover:text-white transition-colors"
               title="Limpiar búsqueda"
             >
               <X size={14} />
@@ -314,7 +355,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
           )}
 
           {/* Account Switcher Pill */}
-          {accounts.length > 0 && (
+          {accounts.length > 1 && (
             <div ref={accountMenuRef} className="electron-no-drag relative">
               <button
                 type="button"
@@ -322,7 +363,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                   setAccountMenuOpen((prev) => !prev);
                   setMenuOpen(false);
                 }}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/15 border border-white/10 text-xs text-white/80 transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.12] hover:bg-white/20 border border-white/15 text-xs text-white/90 transition-colors shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]"
                 title={activeAccount?.email || "Cambiar cuenta"}
               >
                 {activeAccount?.logoImage ? (
@@ -332,7 +373,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                     className="w-4 h-4 rounded-full object-cover"
                   />
                 ) : (
-                  <span className="w-4 h-4 rounded-full bg-blue-500/50 text-[10px] font-semibold flex items-center justify-center text-white">
+                  <span className="w-4 h-4 rounded-full bg-blue-500/60 text-[10px] font-semibold flex items-center justify-center text-white">
                     {(activeAccount?.appTitle || activeAccount?.email || "L")
                       .charAt(0)
                       .toUpperCase()}
@@ -344,8 +385,8 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
               </button>
 
               {accountMenuOpen && (
-                <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-gray-900/95 backdrop-blur-2xl border border-white/15 shadow-2xl p-1.5 z-50">
-                  <div className="px-2.5 py-1 text-[10px] uppercase tracking-wider text-white/40 font-semibold">
+                <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-neutral-900/90 backdrop-blur-2xl border border-white/20 shadow-2xl p-1.5 z-50">
+                  <div className="px-2.5 py-1 text-[10px] uppercase tracking-wider text-white/45 font-semibold">
                     Cuentas conectadas
                   </div>
                   {accounts.map((acc) => {
@@ -363,14 +404,14 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                         }}
                         className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left text-xs transition-colors ${
                           isActive
-                            ? "bg-white/15 text-white font-medium"
-                            : "text-white/70 hover:bg-white/10 hover:text-white"
+                            ? "bg-white/20 text-white font-medium"
+                            : "text-white/75 hover:bg-white/10 hover:text-white"
                         }`}
                       >
-                        <span className="w-2 h-2 rounded-full shrink-0 bg-emerald-400/90 opacity-90" />
+                        <span className="w-2 h-2 rounded-full shrink-0 bg-emerald-400" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate">{acc.appTitle || "LaunchPad"}</p>
-                          <p className="text-[10px] text-white/40 truncate">{acc.email}</p>
+                          <p className="text-[10px] text-white/45 truncate">{acc.email}</p>
                         </div>
                       </button>
                     );
@@ -382,7 +423,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                       setAccountMenuOpen(false);
                       setIsAddAccountOpen(true);
                     }}
-                    className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs text-blue-300 hover:bg-blue-500/15 transition-colors"
+                    className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs text-blue-300 hover:bg-blue-500/20 transition-colors"
                   >
                     <UserPlus size={13} />
                     Agregar otra cuenta
@@ -392,7 +433,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
             </div>
           )}
 
-          {/* Three-dot (...) Menu Button (just like top-right of macOS Apps!) */}
+          {/* Subtle Three-dot (...) Menu Button (just like top-right of macOS Apps!) */}
           <div ref={menuRef} className="electron-no-drag relative">
             <button
               type="button"
@@ -400,24 +441,24 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                 setMenuOpen((prev) => !prev);
                 setAccountMenuOpen(false);
               }}
-              className="relative p-2 rounded-full bg-white/[0.08] hover:bg-white/20 border border-white/10 text-white/80 hover:text-white transition-colors"
+              className="relative p-1.5 rounded-full hover:bg-white/15 text-white/75 hover:text-white transition-colors"
               title="Más opciones"
             >
-              <MoreHorizontal size={17} />
+              <MoreHorizontal size={20} />
               {hasDesktopUpdate && (
                 <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               )}
             </button>
 
             {menuOpen && (
-              <div className="absolute right-0 mt-2 w-60 rounded-2xl bg-gray-900/95 backdrop-blur-2xl border border-white/15 shadow-2xl p-1.5 z-50 text-xs">
+              <div className="absolute right-0 mt-2 w-60 rounded-2xl bg-neutral-900/90 backdrop-blur-2xl border border-white/20 shadow-2xl p-1.5 z-50 text-xs">
                 <button
                   type="button"
                   onClick={() => {
                     setMenuOpen(false);
                     onAddLinkClick();
                   }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/85 hover:bg-white/10 transition-colors"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/90 hover:bg-white/15 transition-colors"
                 >
                   <Plus size={14} className="text-blue-400" />
                   Agregar enlace o programa
@@ -428,18 +469,29 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                     setMenuOpen(false);
                     onAddFolderClick();
                   }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/85 hover:bg-white/10 transition-colors"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/90 hover:bg-white/15 transition-colors"
                 >
                   <FolderPlus size={14} className="text-indigo-300" />
                   Nueva categoría / carpeta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setIsAddAccountOpen(true);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/90 hover:bg-white/15 transition-colors"
+                >
+                  <UserPlus size={14} className="text-sky-300" />
+                  Agregar otra cuenta
                 </button>
                 <div className="my-1 border-t border-white/10" />
                 <button
                   type="button"
                   onClick={handleSwitchToNormalWindow}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/85 hover:bg-white/10 transition-colors"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/90 hover:bg-white/15 transition-colors"
                 >
-                  <Maximize2 size={14} className="text-white/60" />
+                  <Maximize2 size={14} className="text-white/65" />
                   Cambiar a Ventana Normal
                 </button>
                 <button
@@ -448,9 +500,9 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                     setMenuOpen(false);
                     onOpenSettings("categories");
                   }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/85 hover:bg-white/10 transition-colors"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/90 hover:bg-white/15 transition-colors"
                 >
-                  <Settings size={14} className="text-white/60" />
+                  <Settings size={14} className="text-white/65" />
                   Configuración
                 </button>
                 <button
@@ -459,14 +511,14 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                     setMenuOpen(false);
                     onOpenSettings("desktop");
                   }}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-white/85 hover:bg-white/10 transition-colors"
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-white/90 hover:bg-white/15 transition-colors"
                 >
                   <span className="flex items-center gap-2.5">
                     <Sparkles size={14} className="text-emerald-400" />
-                    Escritorio y actualizaciones
+                    Escritorio y cristal
                   </span>
                   {desktopUpdateState?.currentVersion && (
-                    <span className="text-[10px] font-mono text-white/45">
+                    <span className="text-[10px] font-mono text-white/50">
                       v{desktopUpdateState.currentVersion}
                     </span>
                   )}
@@ -478,7 +530,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                     setMenuOpen(false);
                     void getDesktopWindow()?.quit();
                   }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-red-300 hover:bg-red-500/15 transition-colors"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-red-300 hover:bg-red-500/20 transition-colors"
                 >
                   <Power size={14} />
                   Salir de LaunchPad
@@ -488,16 +540,16 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
           </div>
         </div>
 
-        {/* Horizontal Category Pills Bar (just like macOS Apps categories!) */}
+        {/* Horizontal Category Pills Bar (seamless floating glass capsules like macOS Apps!) */}
         {!normalizedQuery && (
-          <div className="px-5 py-2.5 flex items-center gap-1.5 overflow-x-auto border-b border-white/[0.07] shrink-0">
+          <div className="px-6 py-2 flex items-center gap-2 overflow-x-auto shrink-0">
             <button
               type="button"
               onClick={() => setActiveFolderId(null)}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all shrink-0 border ${
+              className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all shrink-0 ${
                 !activeFolderId
-                  ? "bg-white/20 border-white/30 text-white shadow-sm"
-                  : "bg-white/[0.06] border-transparent text-white/65 hover:bg-white/12 hover:text-white"
+                  ? "bg-white/25 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_2px_8px_rgba(0,0,0,0.18)]"
+                  : "bg-white/[0.11] text-white/80 hover:bg-white/[0.18] hover:text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
               }`}
             >
               Todas
@@ -514,10 +566,10 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                     e.preventDefault();
                     onEditCategory(cat);
                   }}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all shrink-0 border ${
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all shrink-0 ${
                     isSelected
-                      ? "bg-white/20 border-white/30 text-white shadow-sm"
-                      : "bg-white/[0.06] border-transparent text-white/65 hover:bg-white/12 hover:text-white"
+                      ? "bg-white/25 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_2px_8px_rgba(0,0,0,0.18)]"
+                      : "bg-white/[0.11] text-white/80 hover:bg-white/[0.18] hover:text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
                   }`}
                 >
                   {cat.title}
@@ -528,7 +580,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
             <button
               type="button"
               onClick={onAddFolderClick}
-              className="p-1.5 rounded-full bg-white/[0.05] hover:bg-white/15 text-white/45 hover:text-white transition-colors shrink-0"
+              className="p-1.5 rounded-full bg-white/[0.09] hover:bg-white/20 text-white/60 hover:text-white transition-colors shrink-0"
               title="Nueva categoría"
             >
               <Plus size={13} />
@@ -536,28 +588,28 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
           </div>
         )}
 
-        {/* Subfolder Breadcrumbs (only when inside a nested subfolder) */}
+        {/* Subfolder Breadcrumbs */}
         {!normalizedQuery && breadcrumbs.length > 1 && (
-          <div className="px-5 pt-2 flex items-center gap-1.5 text-xs text-white/55 shrink-0">
+          <div className="px-6 pt-1 flex items-center gap-1.5 text-xs text-white/65 shrink-0">
             <button
               type="button"
               onClick={() => {
                 const current = categories.find((c) => c.id === activeFolderId);
                 setActiveFolderId(current?.parentId || null);
               }}
-              className="p-1 rounded-md hover:bg-white/10 text-white/70 hover:text-white"
+              className="p-1 rounded-md hover:bg-white/15 text-white/80 hover:text-white"
               title="Volver"
             >
               <ChevronLeft size={14} />
             </button>
             {breadcrumbs.map((crumb, i) => (
               <React.Fragment key={crumb.id}>
-                {i > 0 && <ChevronRight size={12} className="text-white/30" />}
+                {i > 0 && <ChevronRight size={12} className="text-white/35" />}
                 <button
                   type="button"
                   onClick={() => setActiveFolderId(crumb.id)}
-                  className={`px-1.5 py-0.5 rounded hover:bg-white/10 transition-colors ${
-                    crumb.id === activeFolderId ? "text-white font-medium" : "text-white/55"
+                  className={`px-1.5 py-0.5 rounded hover:bg-white/15 transition-colors ${
+                    crumb.id === activeFolderId ? "text-white font-medium" : "text-white/65"
                   }`}
                 >
                   {crumb.title}
@@ -567,20 +619,20 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
           </div>
         )}
 
-        {/* Main Icon Grid */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        {/* Main Icon Grid (macOS Apps proportions — medium squircle icons) */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
           {displayedCategories.length === 0 && displayedLinks.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-white/40 gap-3 py-10">
-              <p className="text-sm">
+            <div className="h-full flex flex-col items-center justify-center text-white/55 gap-3 py-10">
+              <p className="text-sm drop-shadow-sm">
                 {normalizedQuery
                   ? `Sin resultados para "${query}"`
-                  : "No hay apps ni enlaces en esta vista"}
+                  : "No hay apps ni enlaces aquí todavía"}
               </p>
               {!normalizedQuery && (
                 <button
                   type="button"
                   onClick={onAddLinkClick}
-                  className="px-4 py-2 rounded-xl bg-blue-600/80 hover:bg-blue-500 text-white text-xs font-medium transition-colors flex items-center gap-1.5"
+                  className="px-4 py-2 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 text-white text-xs font-medium transition-colors flex items-center gap-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]"
                 >
                   <Plus size={14} />
                   Agregar enlace o programa
@@ -606,7 +658,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                       setActiveFolderId(cat.id);
                     }}
                     onEdit={() => onEditCategory(cat)}
-                    size="small"
+                    size="medium"
                   />
                 );
               })}
@@ -616,7 +668,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                   key={link.id}
                   className={
                     normalizedQuery && idx === 0
-                      ? "rounded-xl ring-2 ring-blue-400/70 bg-white/[0.06]"
+                      ? "rounded-2xl ring-2 ring-white/50 bg-white/10"
                       : ""
                   }
                 >
@@ -627,7 +679,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                     customIconUrl={link.customIconUrl}
                     onClick={() => onLinkClick(link)}
                     onEdit={() => onEditLink(link)}
-                    size="small"
+                    size="medium"
                   />
                 </div>
               ))}
@@ -635,18 +687,18 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
           )}
         </div>
 
-        {/* Ultra-compact Glass Footer */}
-        <div className="px-5 py-2 border-t border-white/[0.08] flex items-center justify-between text-[11px] text-white/45 shrink-0">
+        {/* Ultra-minimal translucent footer */}
+        <div className="px-6 py-2.5 flex items-center justify-between text-[11px] text-white/50 shrink-0">
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5">
               {isSyncing ? (
                 <>
-                  <Loader2 size={11} className="animate-spin text-blue-400" />
+                  <Loader2 size={11} className="animate-spin text-blue-300" />
                   <span>Sincronizando...</span>
                 </>
               ) : (
                 <>
-                  <Cloud size={11} className="text-emerald-400/80" />
+                  <Cloud size={11} className="text-emerald-300/85" />
                   <span>Sincronizado</span>
                 </>
               )}
@@ -659,7 +711,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
                 className={`font-mono transition-colors ${
                   hasDesktopUpdate
                     ? "text-emerald-300 hover:text-emerald-200 font-semibold"
-                    : "text-white/40 hover:text-white/80"
+                    : "text-white/45 hover:text-white/90"
                 }`}
                 title="Ver versión y actualizaciones"
               >
@@ -671,7 +723,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
 
           <div className="flex items-center gap-3">
             {desktopPrefs.registeredShortcut && (
-              <span className="hidden sm:inline text-[10px] px-1.5 py-0.5 rounded bg-white/[0.07] border border-white/10 font-mono text-white/50">
+              <span className="hidden sm:inline text-[10px] px-2 py-0.5 rounded-full bg-white/[0.1] font-mono text-white/60">
                 {desktopPrefs.registeredShortcut}
               </span>
             )}
@@ -686,6 +738,7 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
             </button>
           </div>
         </div>
+        </div>
       </div>
 
       <AddAccountModal
@@ -696,4 +749,3 @@ export const FloatingLauncherView: React.FC<FloatingLauncherViewProps> = ({
     </div>
   );
 };
-

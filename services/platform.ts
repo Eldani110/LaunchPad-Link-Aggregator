@@ -91,6 +91,7 @@ export interface DesktopWindowPrefs {
   autoHideOnBlur: boolean;
   autoHideOnLaunch: boolean;
   openAtLogin: boolean;
+  glassOpacity?: number;
   registeredShortcut: string | null;
   shortcutError: string | null;
 }

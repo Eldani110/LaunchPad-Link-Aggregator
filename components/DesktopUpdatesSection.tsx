@@ -297,6 +297,34 @@ export const DesktopUpdatesSection: React.FC = () => {
             )}
           </div>
 
+          {/* Glass Translucency Slider (macOS Liquid Glass tuning) */}
+          <div className="space-y-1.5 pt-1 border-t border-white/10">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-white/75 font-medium">
+                Opacidad del cristal (modo flotante)
+              </span>
+              <span className="font-mono text-blue-300">
+                {Math.round((windowPrefs.glassOpacity ?? 0.56) * 100)}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0.18}
+              max={0.85}
+              step={0.02}
+              value={windowPrefs.glassOpacity ?? 0.56}
+              onChange={(e) =>
+                void updateWindowPref({ glassOpacity: parseFloat(e.target.value) })
+              }
+              className="w-full accent-blue-500 cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-white/40">
+              <span>Más transparente</span>
+              <span>Equilibrado</span>
+              <span>Más opaco</span>
+            </div>
+          </div>
+
           {/* Behavior Toggles */}
           <div className="space-y-2 pt-1 border-t border-white/10 text-xs">
             <label className="flex items-center justify-between gap-2 cursor-pointer text-white/75 hover:text-white">
