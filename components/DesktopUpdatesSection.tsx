@@ -12,12 +12,18 @@ import {
   Clock,
   Tag,
   History,
+  Sparkles,
+  Keyboard,
+  LayoutGrid,
 } from "lucide-react";
 import {
   DesktopReleaseItem,
   DesktopUpdateState,
+  DesktopWindowMode,
+  DesktopWindowPrefs,
   getDesktopPlatformLabel,
   getDesktopUpdater,
+  getDesktopWindow,
   isDesktopApp,
 } from "../services/platform";
 
@@ -43,12 +49,48 @@ const formatDate = (iso: string | null): string => {
 
 export const DesktopUpdatesSection: React.FC = () => {
   const [updateState, setUpdateState] = useState<DesktopUpdateState | null>(null);
+  const [windowPrefs, setWindowPrefs] = useState<DesktopWindowPrefs | null>(null);
+  const [shortcutDraft, setShortcutDraft] = useState("");
   const [releases, setReleases] = useState<DesktopReleaseItem[]>([]);
   const [releasesLoading, setReleasesLoading] = useState(false);
   const [releasesError, setReleasesError] = useState<string | null>(null);
   const [showTokenInput, setShowTokenInput] = useState(false);
   const [tokenDraft, setTokenDraft] = useState("");
   const [isSavingToken, setIsSavingToken] = useState(false);
+
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    const winBridge = getDesktopWindow();
+    if (!winBridge) return;
+    let active = true;
+    winBridge
+      .getPrefs()
+      .then((prefs) => {
+        if (active) {
+          setWindowPrefs(prefs);
+          setShortcutDraft(prefs.shortcut || "");
+        }
+      })
+      .catch(() => {});
+    const unsub = winBridge.onPrefsChange((next) => {
+      if (active) {
+        setWindowPrefs(next);
+        setShortcutDraft(next.shortcut || "");
+      }
+    });
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, []);
+
+  const updateWindowPref = async (patch: Partial<DesktopWindowPrefs>) => {
+    const winBridge = getDesktopWindow();
+    if (!winBridge) return;
+    const next = await winBridge.updatePrefs(patch);
+    setWindowPrefs(next);
+    setShortcutDraft(next.shortcut || "");
+  };
 
   const loadReleases = useCallback(async () => {
     const updater = getDesktopUpdater();
@@ -151,6 +193,143 @@ export const DesktopUpdatesSection: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto pr-2 space-y-4">
+      {/* Launcher Mode & Behavior Card */}
+      {windowPrefs && (
+        <div className="p-4 rounded-xl bg-white/[0.04] border border-white/10 space-y-3.5">
+          <div className="flex items-center gap-2">
+            <Sparkles size={15} className="text-blue-400" />
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-white/85">
+              Modo Launcher y Activación
+            </h4>
+          </div>
+
+          {/* Window Mode Selector */}
+          <div className="grid grid-cols-2 gap-2">
+            {(
+              [
+                {
+                  id: "launcher" as DesktopWindowMode,
+                  title: "Launcher Flotante",
+                  desc: "Panel translúcido centrado estilo Spotlight",
+                  icon: Sparkles,
+                },
+                {
+                  id: "window" as DesktopWindowMode,
+                  title: "Ventana Normal",
+                  desc: "Ventana clásica completa con barra lateral",
+                  icon: LayoutGrid,
+                },
+              ]
+            ).map((opt) => {
+              const IconComp = opt.icon;
+              const isSelected = windowPrefs.windowMode === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    if (!isSelected) void updateWindowPref({ windowMode: opt.id });
+                  }}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    isSelected
+                      ? "bg-blue-600/25 border-blue-400/60 text-white shadow-sm"
+                      : "bg-black/20 border-white/10 text-white/65 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-semibold">
+                    <IconComp size={13} className={isSelected ? "text-blue-300" : "text-white/50"} />
+                    {opt.title}
+                  </div>
+                  <p className="text-[10px] text-white/45 mt-1 leading-snug">{opt.desc}</p>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Global Shortcut */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-white/65 flex items-center gap-1.5 font-medium">
+                <Keyboard size={12} className="text-blue-300" /> Atajo global (abrir / ocultar)
+              </span>
+              {windowPrefs.registeredShortcut && !windowPrefs.shortcutError && (
+                <span className="text-[10px] text-emerald-300 font-mono">
+                  Activo: {windowPrefs.registeredShortcut}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {["Alt+Space", "CommandOrControl+Shift+Space", "Alt+L", "Control+Alt+Space"].map(
+                (preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => void updateWindowPref({ shortcut: preset })}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-mono border transition-colors ${
+                      windowPrefs.shortcut === preset
+                        ? "bg-blue-500/25 border-blue-400/50 text-blue-200"
+                        : "bg-black/25 border-white/10 text-white/55 hover:text-white hover:bg-white/10"
+                    }`}
+                  >
+                    {preset.replace("CommandOrControl", "Ctrl/Cmd")}
+                  </button>
+                )
+              )}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={shortcutDraft}
+                onChange={(e) => setShortcutDraft(e.target.value)}
+                placeholder="Ej. Alt+Space o CommandOrControl+Shift+Space"
+                className="flex-1 bg-black/30 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+              />
+              <button
+                type="button"
+                onClick={() => void updateWindowPref({ shortcut: shortcutDraft })}
+                className="px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/10 rounded-lg text-xs text-white transition-colors"
+              >
+                Aplicar
+              </button>
+            </div>
+            {windowPrefs.shortcutError && (
+              <p className="text-[11px] text-amber-300">{windowPrefs.shortcutError}</p>
+            )}
+          </div>
+
+          {/* Behavior Toggles */}
+          <div className="space-y-2 pt-1 border-t border-white/10 text-xs">
+            <label className="flex items-center justify-between gap-2 cursor-pointer text-white/75 hover:text-white">
+              <span>Ocultar automáticamente al hacer clic fuera</span>
+              <input
+                type="checkbox"
+                checked={windowPrefs.autoHideOnBlur}
+                onChange={(e) => void updateWindowPref({ autoHideOnBlur: e.target.checked })}
+                className="accent-blue-500 w-4 h-4 rounded"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-2 cursor-pointer text-white/75 hover:text-white">
+              <span>Ocultar automáticamente al abrir una app o enlace</span>
+              <input
+                type="checkbox"
+                checked={windowPrefs.autoHideOnLaunch}
+                onChange={(e) => void updateWindowPref({ autoHideOnLaunch: e.target.checked })}
+                className="accent-blue-500 w-4 h-4 rounded"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-2 cursor-pointer text-white/75 hover:text-white">
+              <span>Iniciar en segundo plano al encender el PC</span>
+              <input
+                type="checkbox"
+                checked={windowPrefs.openAtLogin}
+                onChange={(e) => void updateWindowPref({ openAtLogin: e.target.checked })}
+                className="accent-blue-500 w-4 h-4 rounded"
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
       {/* Current Installed Version Hero Card */}
       <div className="p-4 rounded-xl bg-gradient-to-br from-blue-900/25 via-indigo-900/20 to-slate-900/40 border border-blue-500/25 space-y-4">
         <div className="flex items-start justify-between gap-3">

@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
+import { Eye, EyeOff, Loader2, Lock, Mail, X } from "lucide-react";
 import { useLaunchpad } from "../context/LaunchpadContext";
+import { getDesktopWindow, isDesktopApp } from "../services/platform";
 import { toast } from "sonner";
 
 export const Login: React.FC = () => {
@@ -23,6 +24,24 @@ export const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [isLauncherMode, setIsLauncherMode] = useState(false);
+
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    const winBridge = getDesktopWindow();
+    if (!winBridge) return;
+    let active = true;
+    winBridge.getPrefs().then((p) => {
+      if (active) setIsLauncherMode(p.windowMode === "launcher");
+    }).catch(() => {});
+    const unsub = winBridge.onPrefsChange((p) => {
+      if (active) setIsLauncherMode(p.windowMode === "launcher");
+    });
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, []);
 
   if (!isAuthReady) {
     return (
@@ -85,14 +104,33 @@ export const Login: React.FC = () => {
   const displayError = formError || error;
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-gray-900 font-sans text-slate-100 flex items-center justify-center p-4">
-      {/* Background */}
-      <div
-        className="absolute inset-0 z-0 bg-cover bg-center"
-        style={{ backgroundImage: `url('${backgroundImage}')` }}
-      >
-        <div className="absolute inset-0 bg-gray-900/65 backdrop-blur-3xl" />
-      </div>
+    <div
+      className={`relative w-full overflow-hidden font-sans text-slate-100 flex items-center justify-center ${
+        isLauncherMode
+          ? "h-screen bg-transparent p-1.5"
+          : "min-h-screen bg-gray-900 p-4"
+      }`}
+    >
+      {/* Background (full wallpaper in normal/web mode; rounded translucent shell in floating launcher mode) */}
+      {isLauncherMode ? (
+        <div className="electron-drag absolute inset-1.5 z-0 rounded-[26px] bg-slate-900/80 backdrop-blur-3xl border border-white/20 shadow-2xl">
+          <button
+            type="button"
+            onClick={() => void getDesktopWindow()?.hide()}
+            className="electron-no-drag absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-colors"
+            title="Ocultar"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      ) : (
+        <div
+          className="absolute inset-0 z-0 bg-cover bg-center"
+          style={{ backgroundImage: `url('${backgroundImage}')` }}
+        >
+          <div className="absolute inset-0 bg-gray-900/65 backdrop-blur-3xl" />
+        </div>
+      )}
 
       {/* Login Card */}
       <div className="relative z-10 w-full max-w-md bg-black/45 border border-white/10 rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-500 flex flex-col items-center text-center">

@@ -13,11 +13,14 @@ import { ListView } from "../components/ListView";
 import { CategorySidebar } from "../components/CategorySidebar";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { AccountTabsBar } from "../components/AccountTabsBar";
+import { FloatingLauncherView } from "../components/FloatingLauncherView";
 import { ChevronRight, Home as HomeIcon, Settings, Cloud, Loader2, Trash2, LayoutGrid, List as ListIcon, AlertCircle, Menu, Share2, Copy, Monitor, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import {
   DesktopUpdateState,
+  DesktopWindowPrefs,
   getDesktopUpdater,
+  getDesktopWindow,
   getLocalAppFallbackIcon,
   isDesktopApp,
   isLinkVisibleOnCurrentPlatform,
@@ -87,9 +90,10 @@ export const Home = () => {
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('categories');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Desktop version & update status (only active in Electron desktop app)
+  // Desktop version, floating launcher prefs & update status (only active in Electron desktop app)
   const desktopMode = isDesktopApp();
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
+  const [desktopPrefs, setDesktopPrefs] = useState<DesktopWindowPrefs | null>(null);
 
   useEffect(() => {
     if (!desktopMode) return;
@@ -107,6 +111,25 @@ export const Home = () => {
       unsub();
     };
   }, [desktopMode]);
+
+  useEffect(() => {
+    if (!desktopMode) return;
+    const winBridge = getDesktopWindow();
+    if (!winBridge) return;
+    let active = true;
+    winBridge.getPrefs().then((p) => {
+      if (active) setDesktopPrefs(p);
+    }).catch(() => {});
+    const unsub = winBridge.onPrefsChange((p) => {
+      if (active) setDesktopPrefs(p);
+    });
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, [desktopMode]);
+
+  const isLauncherMode = desktopMode && desktopPrefs?.windowMode === "launcher";
 
   const hasDesktopUpdate =
     desktopUpdateState?.status === "available" ||
@@ -138,8 +161,29 @@ export const Home = () => {
   // DnD State
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
-  // ESC Key Handler for Navigation
+  // Pause floating-launcher auto-hide on blur whenever any modal is open
+  const hasAnyModalOpen =
+    isLinkModalOpen ||
+    isSettingsModalOpen ||
+    isNewFolderModalOpen ||
+    isCategoryModalOpen ||
+    showDeleteConfirm ||
+    showCategoryDeleteConfirm ||
+    Boolean(error);
+
   useEffect(() => {
+    if (!desktopMode || !hasAnyModalOpen) return;
+    const winBridge = getDesktopWindow();
+    if (!winBridge) return;
+    void winBridge.setAutoHidePaused(true);
+    return () => {
+      void winBridge.setAutoHidePaused(false);
+    };
+  }, [desktopMode, hasAnyModalOpen]);
+
+  // ESC Key Handler for Navigation (normal window / web mode; FloatingLauncherView handles its own ESC)
+  useEffect(() => {
+    if (isLauncherMode) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && activeFolderId) {
         // Go up one level
@@ -150,7 +194,7 @@ export const Home = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeFolderId, categories]);
+  }, [activeFolderId, categories, isLauncherMode]);
 
   // DnD Sensors
   const sensors = useSensors(
@@ -204,12 +248,18 @@ export const Home = () => {
       const result = await launchDesktopApp(link.url, link.launchArgs);
       if (result.ok) {
         toast.success(`Abriendo ${link.title}...`);
+        if (isLauncherMode && desktopPrefs?.autoHideOnLaunch) {
+          void getDesktopWindow()?.hide();
+        }
       } else {
         toast.error(result.error || `No se pudo abrir "${link.title}".`);
       }
       return;
     }
     openExternalLink(link.url);
+    if (isLauncherMode && desktopPrefs?.autoHideOnLaunch) {
+      void getDesktopWindow()?.hide();
+    }
   };
 
   const handleShare = () => {
@@ -427,6 +477,28 @@ export const Home = () => {
   }, [links, categories]);
 
   return (
+    <>
+    {isLauncherMode && desktopPrefs ? (
+      <FloatingLauncherView
+        activeFolderId={activeFolderId}
+        setActiveFolderId={setActiveFolderId}
+        onLinkClick={handleLinkClick}
+        onEditLink={handleEditClick}
+        onEditCategory={handleEditCategoryClick}
+        onAddLinkClick={() => {
+          setEditingLink(null);
+          setIsLinkModalOpen(true);
+        }}
+        onAddFolderClick={() => {
+          setNewFolderParentId(activeFolderId);
+          setIsNewFolderModalOpen(true);
+        }}
+        onOpenSettings={(tab) => openSettingsTab(tab)}
+        desktopPrefs={desktopPrefs}
+        desktopUpdateState={desktopUpdateState}
+        hasModalOpen={hasAnyModalOpen}
+      />
+    ) : (
     <div className="relative h-screen w-full overflow-hidden bg-gray-900 font-sans text-slate-100 selection:bg-blue-500/30 flex flex-col">
       
       {/* Dynamic Background */}
@@ -466,6 +538,17 @@ export const Home = () => {
                     <ListIcon size={18} />
                     </button>
                 </div>
+
+                {desktopMode && (
+                  <button
+                    type="button"
+                    onClick={() => void getDesktopWindow()?.updatePrefs({ windowMode: "launcher" })}
+                    className="p-3 bg-black/20 hover:bg-blue-600/35 backdrop-blur-xl border border-white/10 hover:border-blue-400/40 rounded-full text-blue-200 hover:text-white transition-all duration-200 hover:scale-110 shadow-lg"
+                    title="Cambiar a Launcher Flotante (Spotlight)"
+                  >
+                    <Sparkles size={18} />
+                  </button>
+                )}
 
                 <button
                 onClick={() => openSettingsTab('categories')}
@@ -716,8 +799,11 @@ export const Home = () => {
                   setIsNewFolderModalOpen(true);
               }}
             />
+        </div>
+    </div>
+    )}
 
-            {/* --- MODALS --- */}
+            {/* --- MODALS (shared between Floating Launcher & Normal Window) --- */}
 
             {/* General Error Modal */}
             <GlassModal 
@@ -968,7 +1054,6 @@ export const Home = () => {
                 onCancel={() => setIsSettingsModalOpen(false)}
                 />
             </GlassModal>
-        </div>
-    </div>
+    </>
   );
 };

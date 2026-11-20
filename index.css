@@ -25,6 +25,22 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Transparent floating Spotlight/Apps launcher mode on Desktop */
+html.desktop-launcher-mode,
+html.desktop-launcher-mode body,
+html.desktop-launcher-mode #root {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+.electron-drag {
+  -webkit-app-region: drag;
+}
+
+.electron-no-drag {
+  -webkit-app-region: no-drag;
+}
+
 /* Fix browser autofill bright background on dark glass inputs */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,

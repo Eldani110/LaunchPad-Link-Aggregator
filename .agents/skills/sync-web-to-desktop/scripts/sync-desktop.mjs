@@ -100,6 +100,7 @@ const requiredDesktopFiles = [
   "services/platform.ts",
   "components/DesktopUpdateBanner.tsx",
   "components/DesktopUpdatesSection.tsx",
+  "components/FloatingLauncherView.tsx",
 ];
 for (const relPath of requiredDesktopFiles) {
   if (!fs.existsSync(path.join(ROOT, relPath))) {

@@ -414,7 +414,7 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-[600px]">
+    <div className="flex flex-col h-[min(600px,calc(100vh-8rem))]">
       {/* Tabs */}
       <div className="flex gap-4 mb-6 border-b border-white/10 pb-2">
         <button

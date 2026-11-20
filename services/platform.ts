@@ -83,11 +83,36 @@ export interface DesktopLauncherBridge {
   listInstalled: (forceRefresh?: boolean) => Promise<InstalledAppInfo[]>;
 }
 
+export type DesktopWindowMode = "launcher" | "window";
+
+export interface DesktopWindowPrefs {
+  windowMode: DesktopWindowMode;
+  shortcut: string;
+  autoHideOnBlur: boolean;
+  autoHideOnLaunch: boolean;
+  openAtLogin: boolean;
+  registeredShortcut: string | null;
+  shortcutError: string | null;
+}
+
+export interface DesktopWindowBridge {
+  getPrefs: () => Promise<DesktopWindowPrefs>;
+  updatePrefs: (patch: Partial<DesktopWindowPrefs>) => Promise<DesktopWindowPrefs>;
+  hide: () => Promise<boolean>;
+  show: () => Promise<boolean>;
+  toggle: () => Promise<boolean>;
+  setAutoHidePaused: (paused: boolean) => Promise<number>;
+  quit: () => Promise<boolean>;
+  onPrefsChange: (callback: (prefs: DesktopWindowPrefs) => void) => () => void;
+  onShown: (callback: () => void) => () => void;
+}
+
 export interface LaunchpadDesktopBridge {
   isDesktop: true;
   platform: "win32" | "darwin" | "linux" | string;
   openExternal: (url: string) => Promise<boolean>;
   getAppVersion: () => Promise<string>;
+  window?: DesktopWindowBridge;
   launcher?: DesktopLauncherBridge;
   updater?: DesktopUpdaterBridge;
 }
@@ -196,6 +221,11 @@ export const getDesktopUpdater = (): DesktopUpdaterBridge | null => {
 export const getDesktopLauncher = (): DesktopLauncherBridge | null => {
   if (!isDesktopApp()) return null;
   return window.launchpadDesktop?.launcher ?? null;
+};
+
+export const getDesktopWindow = (): DesktopWindowBridge | null => {
+  if (!isDesktopApp()) return null;
+  return window.launchpadDesktop?.window ?? null;
 };
 
 export const launchDesktopApp = async (

@@ -617,7 +617,7 @@ async function launchApplication(rawTarget, rawArgs = "") {
   return spawnDetached(bin, [...inlineArgs, ...extraArgs]);
 }
 
-function initLauncher({ getMainWindow }) {
+function initLauncher({ getMainWindow, onBeforeNativeDialog, onAfterNativeDialog }) {
   let cachedApps = null;
   let cacheTimestamp = 0;
   const CACHE_TTL_MS = 60 * 1000;
@@ -627,7 +627,12 @@ function initLauncher({ getMainWindow }) {
   });
 
   ipcMain.handle("desktop:launcher:pick-app", async () => {
-    return pickLocalApp(getMainWindow());
+    onBeforeNativeDialog?.();
+    try {
+      return await pickLocalApp(getMainWindow());
+    } finally {
+      onAfterNativeDialog?.();
+    }
   });
 
   ipcMain.handle("desktop:launcher:list-installed", async (_event, forceRefresh = false) => {
