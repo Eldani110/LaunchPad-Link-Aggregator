@@ -58,6 +58,8 @@ const USING_X11_ON_LINUX =
     process.argv.some((a) => a.startsWith("--ozone-platform=x11")));
 
 const HAS_KDE_NATIVE_BLUR = IS_KDE_LINUX && USING_X11_ON_LINUX;
+const IS_KDE_WAYLAND =
+  IS_KDE_LINUX && process.env.XDG_SESSION_TYPE === "wayland";
 
 if (IS_SMOKE_TEST) {
   app.setPath("userData", path.join(os.tmpdir(), `launchpad-smoke-${process.pid}`));
@@ -99,6 +101,187 @@ let isRecreatingWindow = false;
 let autoHidePauseCount = 0;
 let registeredShortcut = null;
 let shortcutError = null;
+let kwinCursorPlacementActive = false;
+
+const KWIN_PLACEMENT_PLUGIN = "launchpad_cursor_placement";
+const KWIN_REPOSITION_PLUGIN = "launchpad_cursor_reposition";
+
+function runKwinScriptingCall(method, args = [], { async: isAsync = false } = {}) {
+  const gdbusArgs = [
+    "call",
+    "--session",
+    "--dest",
+    "org.kde.KWin",
+    "--object-path",
+    "/Scripting",
+    "--method",
+    `org.kde.kwin.Scripting.${method}`,
+    ...args,
+  ];
+  const qdbusArgs = [
+    "org.kde.KWin",
+    "/Scripting",
+    `org.kde.kwin.Scripting.${method}`,
+    ...args,
+  ];
+
+  const isOutputOk = (out) => {
+    const trimmed = String(out || "").trim();
+    if (method === "loadScript") {
+      const m = /-?\d+/.exec(trimmed);
+      return m ? parseInt(m[0], 10) >= 0 : false;
+    }
+    return true;
+  };
+
+  if (isAsync) {
+    return new Promise((resolve) => {
+      execFile("gdbus", gdbusArgs, { encoding: "utf8", timeout: 1500 }, (err, stdout) => {
+        if (!err) {
+          resolve(isOutputOk(stdout));
+          return;
+        }
+        execFile("qdbus6", qdbusArgs, { encoding: "utf8", timeout: 1500 }, (err2, stdout2) => {
+          resolve(!err2 && isOutputOk(stdout2));
+        });
+      });
+    });
+  }
+
+  try {
+    const out = execFileSync("gdbus", gdbusArgs, { encoding: "utf8", timeout: 1500 });
+    return isOutputOk(out);
+  } catch {
+    try {
+      const out = execFileSync("qdbus6", qdbusArgs, { encoding: "utf8", timeout: 1500 });
+      return isOutputOk(out);
+    } catch {
+      return false;
+    }
+  }
+}
+
+function buildKwinPlaceFunctionSource(targetPid) {
+  return `
+  var TARGET_PID = ${targetPid};
+  function isLaunchPadWindow(w) {
+    if (!w || w.pid !== TARGET_PID) return false;
+    if (w.popupWindow || w.tooltip || w.dock || w.desktopWindow || w.menu || w.dialog) return false;
+    if (typeof w.normalWindow === "boolean" && !w.normalWindow) return false;
+    var cap = String(w.caption || "");
+    if (cap && cap.indexOf("LaunchPad") === -1) return false;
+    return true;
+  }
+  function placeLaunchPadWindow(w) {
+    if (!isLaunchPadWindow(w)) return;
+    var p = workspace.cursorPos;
+    if (!p) return;
+    var scr = typeof workspace.screenAt === "function" ? workspace.screenAt(p) : null;
+    if (!scr && workspace.activeScreen) scr = workspace.activeScreen;
+    if (!scr) return;
+    var area = workspace.clientArea(KWin.MaximizeArea, scr, workspace.currentDesktop);
+    if (!area || area.width <= 0 || area.height <= 0) return;
+    var cap = String(w.caption || "");
+    var isLauncher = Boolean(w.noBorder) || cap === "LaunchPad";
+    var minW = isLauncher ? 640 : 760;
+    var minH = isLauncher ? 440 : 520;
+    var curW = Math.round(w.width) || (isLauncher ? 860 : 1280);
+    var curH = Math.round(w.height) || (isLauncher ? 560 : 820);
+    var ww = Math.min(curW, Math.max(minW, Math.round(area.width) - 48));
+    var hh = Math.min(curH, Math.max(minH, Math.round(area.height) - 64));
+    var tx = Math.round(area.x + (area.width - ww) / 2);
+    var ty = Math.round(area.y + (area.height - hh) / (isLauncher ? 2.25 : 2));
+    if (typeof w.frameGeometry !== "undefined") {
+      w.frameGeometry = { x: tx, y: ty, width: ww, height: hh };
+    } else if (typeof w.geometry !== "undefined") {
+      w.geometry = { x: tx, y: ty, width: ww, height: hh };
+    }
+  }
+`;
+}
+
+/**
+ * On KDE Plasma Wayland with XWayland (--ozone-platform=x11), X11's pointer API
+ * (screen.getCursorScreenPoint / xdotool) stays stale whenever the mouse is over
+ * native Wayland apps or the desktop. Registering a lightweight KWin script lets
+ * KWin itself place LaunchPad synchronously on workspace.screenAt(workspace.cursorPos)
+ * at the exact moment the window maps (0 ms latency, zero wrong-monitor flicker).
+ */
+function installKwinCursorPlacement() {
+  if (!IS_KDE_WAYLAND || IS_SMOKE_TEST) return false;
+  try {
+    const scriptPath = path.join(app.getPath("userData"), "kwin-cursor-placement.js");
+    const source = `(function () {
+${buildKwinPlaceFunctionSource(process.pid)}
+  if (workspace.windowAdded && typeof workspace.windowAdded.connect === "function") {
+    workspace.windowAdded.connect(placeLaunchPadWindow);
+  } else if (workspace.clientAdded && typeof workspace.clientAdded.connect === "function") {
+    workspace.clientAdded.connect(placeLaunchPadWindow);
+  }
+})();
+`;
+    fs.writeFileSync(scriptPath, source, "utf8");
+    runKwinScriptingCall("unloadScript", [KWIN_PLACEMENT_PLUGIN]);
+    const loaded = runKwinScriptingCall("loadScript", [scriptPath, KWIN_PLACEMENT_PLUGIN]);
+    const started = loaded && runKwinScriptingCall("start");
+    kwinCursorPlacementActive = Boolean(started);
+    return kwinCursorPlacementActive;
+  } catch (err) {
+    console.warn("Could not install KWin cursor placement helper:", err?.message || err);
+    kwinCursorPlacementActive = false;
+    return false;
+  }
+}
+
+function uninstallKwinCursorPlacement() {
+  if (!IS_KDE_WAYLAND || IS_SMOKE_TEST) return;
+  try {
+    runKwinScriptingCall("unloadScript", [KWIN_PLACEMENT_PLUGIN]);
+    runKwinScriptingCall("unloadScript", [KWIN_REPOSITION_PLUGIN]);
+  } catch {
+    // ignore
+  }
+  kwinCursorPlacementActive = false;
+}
+
+/**
+ * Repositions an already-visible LaunchPad window on KDE Wayland to the monitor
+ * currently under the live Wayland cursor (used when autoHideOnBlur is disabled
+ * and the window is already mapped on another monitor).
+ */
+async function repositionVisibleKwinWindowToCursor() {
+  if (!IS_KDE_WAYLAND || IS_SMOKE_TEST) return false;
+  try {
+    const scriptPath = path.join(app.getPath("userData"), "kwin-cursor-reposition.js");
+    const source = `(function () {
+${buildKwinPlaceFunctionSource(process.pid)}
+  var list = typeof workspace.windowList === "function"
+    ? workspace.windowList()
+    : (typeof workspace.clientList === "function" ? workspace.clientList() : []);
+  for (var i = 0; i < list.length; i++) {
+    placeLaunchPadWindow(list[i]);
+  }
+})();
+`;
+    fs.writeFileSync(scriptPath, source, "utf8");
+    await runKwinScriptingCall("unloadScript", [KWIN_REPOSITION_PLUGIN], { async: true });
+    const loaded = await runKwinScriptingCall(
+      "loadScript",
+      [scriptPath, KWIN_REPOSITION_PLUGIN],
+      { async: true }
+    );
+    if (loaded) {
+      await runKwinScriptingCall("start", [], { async: true });
+      setTimeout(() => {
+        void runKwinScriptingCall("unloadScript", [KWIN_REPOSITION_PLUGIN], { async: true });
+      }, 150);
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
 
 // --- Desktop Preferences Persistence ---
 
@@ -447,34 +630,54 @@ function showMainWindow() {
   }
 
   const isLauncher = desktopPrefs.windowMode === "launcher";
+  const wasVisible = mainWindow.isVisible();
 
   if (mainWindow.isMinimized()) {
     mainWindow.restore();
   }
 
-  // Position on the display where the mouse cursor currently is BEFORE mapping
-  const targetBounds = positionWindowOnCursorDisplay(mainWindow);
+  if (IS_KDE_WAYLAND && !IS_SMOKE_TEST && !kwinCursorPlacementActive) {
+    installKwinCursorPlacement();
+  }
 
-  if (process.platform === "darwin" && isLauncher) {
-    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (kwinCursorPlacementActive) {
+    // KWin's workspace.windowAdded listener places the window synchronously on
+    // workspace.screenAt(workspace.cursorPos) when mapping from hidden. Do NOT
+    // overwrite with Electron's stale XWayland setBounds() coordinates.
     mainWindow.show();
-    if (targetBounds) mainWindow.setBounds(targetBounds, false);
-    setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
-      }
-    }, 120);
+    if (wasVisible && !mainWindow.isMaximized()) {
+      void repositionVisibleKwinWindowToCursor();
+    }
   } else {
-    mainWindow.show();
-    // Re-apply bounds right after mapping so KWin (Linux XWayland) and Windows mixed-DPI
-    // do not restore the window onto its previous monitor
-    if (targetBounds && !mainWindow.isMaximized()) {
-      mainWindow.setBounds(targetBounds, false);
+    // Position on the display where the mouse cursor currently is BEFORE mapping
+    const targetBounds = positionWindowOnCursorDisplay(mainWindow);
+
+    if (process.platform === "darwin" && isLauncher) {
+      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      mainWindow.show();
+      if (targetBounds) mainWindow.setBounds(targetBounds, false);
       setTimeout(() => {
-        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMaximized()) {
-          mainWindow.setBounds(targetBounds, false);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
         }
-      }, 30);
+      }, 120);
+    } else {
+      mainWindow.show();
+      // Re-apply bounds right after mapping so Windows mixed-DPI and X11 WMs
+      // do not restore the window onto its previous monitor
+      if (targetBounds && !mainWindow.isMaximized()) {
+        mainWindow.setBounds(targetBounds, false);
+        setTimeout(() => {
+          if (
+            mainWindow &&
+            !mainWindow.isDestroyed() &&
+            mainWindow.isVisible() &&
+            !mainWindow.isMaximized()
+          ) {
+            mainWindow.setBounds(targetBounds, false);
+          }
+        }, 30);
+      }
     }
   }
 
@@ -510,16 +713,19 @@ function toggleMainWindow() {
   }
 
   if (mainWindow.isVisible() && mainWindow.isFocused()) {
-    // If the user moved their mouse to a different monitor, relocate the window there instead of hiding it
-    try {
-      const cursorDisplay = getDisplayAtCursor();
-      const winDisplay = screen.getDisplayMatching(mainWindow.getBounds());
-      if (cursorDisplay && winDisplay && cursorDisplay.id !== winDisplay.id) {
-        showMainWindow();
-        return;
+    // On platforms where Electron has live global cursor coordinates (Windows, macOS, X11),
+    // relocate if the user moved the mouse to another monitor instead of hiding.
+    if (!kwinCursorPlacementActive) {
+      try {
+        const cursorDisplay = getDisplayAtCursor();
+        const winDisplay = screen.getDisplayMatching(mainWindow.getBounds());
+        if (cursorDisplay && winDisplay && cursorDisplay.id !== winDisplay.id) {
+          showMainWindow();
+          return;
+        }
+      } catch {
+        // ignore and toggle normally
       }
-    } catch {
-      // ignore and toggle normally
     }
     hideMainWindow();
   } else {
@@ -782,6 +988,13 @@ function createMainWindow({ showImmediately = true } = {}) {
   const win = new BrowserWindow(windowOptions);
   mainWindow = win;
 
+  if (isLauncher) {
+    // Keep window title as "LaunchPad" instead of index.html's <title>
+    win.on("page-title-updated", (event) => {
+      event.preventDefault();
+    });
+  }
+
   win.once("ready-to-show", () => {
     if (IS_SMOKE_TEST || !showImmediately || win.isDestroyed()) return;
     showMainWindow();
@@ -1031,6 +1244,7 @@ if (!hasLock) {
 
   app.on("before-quit", () => {
     isQuitting = true;
+    uninstallKwinCursorPlacement();
     try {
       globalShortcut.unregisterAll();
     } catch {
@@ -1040,6 +1254,7 @@ if (!hasLock) {
 
   app.whenReady().then(() => {
     desktopPrefs = loadDesktopPrefs();
+    installKwinCursorPlacement();
 
     if (!DEV_URL) {
       registerLocalAppProtocol();
