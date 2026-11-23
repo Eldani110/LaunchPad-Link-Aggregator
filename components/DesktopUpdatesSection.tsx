@@ -156,6 +156,7 @@ export const DesktopUpdatesSection: React.FC = () => {
   const checkedAt = updateState?.checkedAt;
   const isChecking = status === "checking";
   const isDownloading = status === "downloading";
+  const isInstalling = status === "installing";
 
   const handleCheck = async () => {
     await updater.checkForUpdates();
@@ -467,8 +468,20 @@ export const DesktopUpdatesSection: React.FC = () => {
           )}
 
           {status === "downloaded" && (
-            <span className="text-emerald-300">
-              La actualización <strong className="text-white">v{latestVersion}</strong> ya está descargada y lista para instalarse.
+            <div className="space-y-1">
+              <span className="text-emerald-300 block">
+                La actualización <strong className="text-white">v{latestVersion}</strong> ya está descargada y lista para instalarse.
+              </span>
+              {updateState?.error && (
+                <p className="text-[11px] text-amber-300/95">{updateState.error}</p>
+              )}
+            </div>
+          )}
+
+          {isInstalling && (
+            <span className="flex items-center gap-2 text-blue-200">
+              <Loader2 size={14} className="animate-spin shrink-0" />
+              Instalando actualización v{latestVersion} y reiniciando LaunchPad...
             </span>
           )}
 
@@ -482,7 +495,16 @@ export const DesktopUpdatesSection: React.FC = () => {
 
         {/* Action Buttons + Last Checked */}
         <div className="flex flex-wrap items-center gap-2">
-          {status === "downloaded" ? (
+          {isInstalling ? (
+            <button
+              type="button"
+              disabled
+              className="flex-1 py-2.5 px-4 bg-blue-600/70 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-2 opacity-80"
+            >
+              <Loader2 size={14} className="animate-spin" />
+              Instalando v{latestVersion}...
+            </button>
+          ) : status === "downloaded" ? (
             <button
               type="button"
               onClick={() => void updater.installUpdate()}

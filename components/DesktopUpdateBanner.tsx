@@ -50,7 +50,10 @@ export const DesktopUpdateBanner: React.FC = () => {
     updateState;
 
   const isVisibleStatus =
-    status === "available" || status === "downloading" || status === "downloaded";
+    status === "available" ||
+    status === "downloading" ||
+    status === "downloaded" ||
+    status === "installing";
 
   if (!isVisibleStatus) return null;
   if (status === "available" && latestVersion && dismissedVersion === latestVersion) {
@@ -65,7 +68,7 @@ export const DesktopUpdateBanner: React.FC = () => {
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-7 h-7 rounded-lg bg-blue-500/20 border border-blue-400/30 flex items-center justify-center shrink-0 text-blue-300">
-            {status === "downloading" ? (
+            {status === "downloading" || status === "installing" ? (
               <Loader2 size={15} className="animate-spin" />
             ) : status === "downloaded" ? (
               <RefreshCw size={15} />
@@ -75,7 +78,9 @@ export const DesktopUpdateBanner: React.FC = () => {
           </div>
           <div className="min-w-0">
             <p className="text-xs font-semibold text-white truncate">
-              {status === "downloaded"
+              {status === "installing"
+                ? `Instalando v${latestVersion}...`
+                : status === "downloaded"
                 ? `Actualización v${latestVersion} lista`
                 : status === "downloading"
                 ? `Descargando v${latestVersion}...`
@@ -87,7 +92,7 @@ export const DesktopUpdateBanner: React.FC = () => {
           </div>
         </div>
 
-        {status !== "downloading" && (
+        {status !== "downloading" && status !== "installing" && (
           <button
             type="button"
             onClick={() => setDismissedVersion(latestVersion || "dismissed")}
@@ -140,16 +145,27 @@ export const DesktopUpdateBanner: React.FC = () => {
       )}
 
       {status === "downloaded" && (
-        <div className="flex items-center gap-2 mt-3">
-          <button
-            type="button"
-            onClick={() => void updater.installUpdate()}
-            className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-medium transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/20"
-          >
-            <RefreshCw size={14} />
-            Reiniciar e instalar
-          </button>
+        <div className="space-y-2 mt-3">
+          {updateState.error && (
+            <p className="text-[11px] text-amber-300 leading-snug">{updateState.error}</p>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void updater.installUpdate()}
+              className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-medium transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/20"
+            >
+              <RefreshCw size={14} />
+              Reiniciar e instalar
+            </button>
+          </div>
         </div>
+      )}
+
+      {status === "installing" && (
+        <p className="mt-2.5 text-[11px] text-blue-200">
+          Aplicando actualización y reiniciando LaunchPad...
+        </p>
       )}
     </div>
   );

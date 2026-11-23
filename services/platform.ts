@@ -7,6 +7,7 @@ export type DesktopUpdateStatus =
   | "not-available"
   | "downloading"
   | "downloaded"
+  | "installing"
   | "error";
 
 export interface DesktopUpdateState {

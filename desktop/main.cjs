@@ -485,6 +485,7 @@ function showMainWindow() {
   if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
     mainWindow.webContents.send("desktop:window:shown");
   }
+  updaterController?.checkIfStale?.();
 }
 
 function hideMainWindow() {
@@ -1047,6 +1048,22 @@ if (!hasLock) {
     updaterController = initUpdater({
       getMainWindow: () => mainWindow,
       skipAutoCheck: IS_SMOKE_TEST,
+      onBeforeInstallUpdate: () => {
+        isQuitting = true;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.setAlwaysOnTop(false);
+          mainWindow.hide();
+        }
+      },
+      onInstallCancelled: () => {
+        isQuitting = false;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          if (desktopPrefs?.windowMode === "launcher") {
+            mainWindow.setAlwaysOnTop(true);
+          }
+          showMainWindow();
+        }
+      },
     });
 
     initLauncher({

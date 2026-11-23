@@ -1,5 +1,6 @@
 const { app, ipcMain, net, safeStorage, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
+const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -9,7 +10,8 @@ const GITHUB_RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/
 const GITHUB_REPO_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}`;
 const GITHUB_RELEASES_API = `${GITHUB_REPO_API}/releases?per_page=8`;
 const GITHUB_LATEST_API = `${GITHUB_REPO_API}/releases/latest`;
-const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
+const CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+const STALE_CHECK_MS = 15 * 60 * 1000; // 15 minutes
 
 function parseSemver(raw) {
   const cleaned = String(raw || "")
@@ -175,10 +177,17 @@ function writeStoredToken(token) {
   return clean;
 }
 
-function initUpdater({ getMainWindow, skipAutoCheck = false }) {
+function initUpdater({
+  getMainWindow,
+  skipAutoCheck = false,
+  onBeforeInstallUpdate,
+  onInstallCancelled,
+}) {
   const packageType = detectPackageType();
   const nativeCapable = supportsNativeAutoUpdate(packageType);
   let githubToken = readStoredToken();
+  let downloadedFilePath = null;
+  let isInstalling = false;
 
   let state = {
     status: "idle",
@@ -219,7 +228,8 @@ function initUpdater({ getMainWindow, skipAutoCheck = false }) {
   function configureAutoUpdaterFeed() {
     // Download updates automatically in the background whenever native auto-install is supported
     autoUpdater.autoDownload = nativeCapable;
-    autoUpdater.autoInstallOnAppQuit = true;
+    // On Linux .deb we handle privileged pkexec installation explicitly to avoid blocking/failing on quit
+    autoUpdater.autoInstallOnAppQuit = packageType !== "deb";
     autoUpdater.allowPrerelease = false;
 
     if (githubToken) {
@@ -404,6 +414,9 @@ function initUpdater({ getMainWindow, skipAutoCheck = false }) {
 
   autoUpdater.on("update-downloaded", (info) => {
     const version = String(info?.version || state.latestVersion || "").replace(/^v/i, "");
+    if (info?.downloadedFile && typeof info.downloadedFile === "string") {
+      downloadedFilePath = info.downloadedFile;
+    }
     setState({
       status: "downloaded",
       latestVersion: version || state.latestVersion,
@@ -415,10 +428,15 @@ function initUpdater({ getMainWindow, skipAutoCheck = false }) {
   });
 
   autoUpdater.on("error", (err) => {
-    if (state.status === "downloading") {
+    if (
+      state.status === "downloading" ||
+      state.status === "installing" ||
+      state.status === "downloaded"
+    ) {
+      isInstalling = false;
       setState({
-        status: "error",
-        error: err?.message || "Error al descargar la actualización.",
+        status: state.status === "downloaded" || state.status === "installing" ? "downloaded" : "error",
+        error: err?.message || "Error al procesar la actualización.",
       });
     }
   });
@@ -486,12 +504,131 @@ function initUpdater({ getMainWindow, skipAutoCheck = false }) {
     return state;
   }
 
-  function installUpdate() {
-    if (state.status === "downloaded") {
-      autoUpdater.quitAndInstall(false, true);
-      return true;
+  function resolvePendingDebPath() {
+    if (downloadedFilePath && fs.existsSync(downloadedFilePath)) {
+      return downloadedFilePath;
     }
-    return false;
+    try {
+      const pendingDir = path.join(
+        app.getPath("home"),
+        ".cache",
+        "launchpad-link-aggregator-updater",
+        "pending"
+      );
+      const infoPath = path.join(pendingDir, "update-info.json");
+      if (fs.existsSync(infoPath)) {
+        const info = JSON.parse(fs.readFileSync(infoPath, "utf8"));
+        if (info?.fileName) {
+          const candidate = path.join(pendingDir, path.basename(info.fileName));
+          if (fs.existsSync(candidate)) return candidate;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  function runPkexecDpkgInstall(debPath) {
+    return new Promise((resolve) => {
+      execFile(
+        "pkexec",
+        ["dpkg", "-i", debPath],
+        { timeout: 180000 },
+        (err, stdout, stderr) => {
+          if (!err) {
+            resolve({ ok: true, stdout, stderr });
+            return;
+          }
+          // Exit code 126 = user dismissed polkit password dialog; 127 = auth error/not authorized
+          const code = typeof err.code === "number" ? err.code : null;
+          if (code === 126 || code === 127) {
+            resolve({
+              ok: false,
+              canceled: true,
+              error: "Instalación cancelada o sin autorización de administrador.",
+            });
+            return;
+          }
+          resolve({
+            ok: false,
+            canceled: false,
+            error: (stderr || err.message || "Error al instalar el paquete .deb.").trim(),
+          });
+        }
+      );
+    });
+  }
+
+  async function installUpdate() {
+    if (state.status !== "downloaded" || isInstalling) return false;
+    isInstalling = true;
+
+    // Dedicated, non-blocking pkexec installer for Linux .deb packages
+    // (avoids electron-updater's blocking spawnSync + --disable-internal-agent polkit bug)
+    if (process.platform === "linux" && packageType === "deb") {
+      const debPath = resolvePendingDebPath();
+      if (!debPath) {
+        isInstalling = false;
+        setState({
+          status: "error",
+          error: "No se encontró el archivo .deb descargado en caché. Busca actualizaciones nuevamente.",
+        });
+        return false;
+      }
+
+      setState({ status: "installing", error: null });
+      onBeforeInstallUpdate?.();
+
+      const res = await runPkexecDpkgInstall(debPath);
+      if (res.ok) {
+        try {
+          fs.rmSync(path.dirname(debPath), { recursive: true, force: true });
+        } catch {
+          // ignore cache cleanup error
+        }
+        autoUpdater.autoInstallOnAppQuit = false;
+        app.relaunch();
+        app.exit(0);
+        return true;
+      }
+
+      isInstalling = false;
+      onInstallCancelled?.();
+      setState({
+        status: "downloaded",
+        error: res.error,
+      });
+      return false;
+    }
+
+    // Windows NSIS, Linux AppImage, and macOS
+    setState({ status: "installing", error: null });
+    onBeforeInstallUpdate?.();
+
+    try {
+      setImmediate(() => {
+        try {
+          autoUpdater.quitAndInstall(false, true);
+        } catch (err) {
+          isInstalling = false;
+          onInstallCancelled?.();
+          setState({
+            status: "downloaded",
+            error: err?.message || "No se pudo reiniciar para instalar la actualización.",
+          });
+        }
+      });
+      return true;
+    } catch (err) {
+      isInstalling = false;
+      onInstallCancelled?.();
+      setState({
+        status: "downloaded",
+        error: err?.message || "No se pudo iniciar la instalación.",
+      });
+      return false;
+    }
   }
 
   async function setToken(rawToken) {
@@ -605,8 +742,17 @@ function initUpdater({ getMainWindow, skipAutoCheck = false }) {
     if (periodicTimer) clearInterval(periodicTimer);
   });
 
+  function checkIfStale() {
+    if (skipAutoCheck || checkInFlight || isInstalling) return;
+    if (state.status === "downloading" || state.status === "downloaded") return;
+    if (!state.checkedAt || Date.now() - state.checkedAt >= STALE_CHECK_MS) {
+      void checkForUpdates({ silent: true });
+    }
+  }
+
   return {
     checkForUpdates,
+    checkIfStale,
     getState: () => state,
   };
 }
