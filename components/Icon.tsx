@@ -102,10 +102,10 @@ export const Icon: React.FC<IconProps> = ({
   }
 
   return (
-    <div className={`group relative flex flex-col items-center ${containerSizeClasses[size]} p-2 rounded-xl transition-all duration-200 hover:bg-white/10 hover:z-50 touch-manipulation`}>
+    <div className={`group relative flex flex-col items-center ${containerSizeClasses[size]} p-2 rounded-xl touch-manipulation`}>
       
-      {/* Action Buttons Container (Visible on Hover of the Icon Box) */}
-      <div className="absolute -top-2 -right-2 z-20 flex gap-1 opacity-0 group-hover:opacity-100 transition-all scale-90 group-hover:scale-100">
+      {/* Action Buttons Container (Visible on Hover of the Icon Box, without animation) */}
+      <div className="absolute -top-2 -right-2 z-20 flex gap-1 opacity-0 group-hover:opacity-100">
         
         {/* Edit Button */}
         {onEdit && (
@@ -115,7 +115,7 @@ export const Icon: React.FC<IconProps> = ({
               onEdit();
             }}
             onPointerDown={(e) => e.stopPropagation()} // Prevent drag start on click
-            className="p-1.5 bg-gray-600 hover:bg-blue-500 text-white rounded-full shadow-lg transition-colors"
+            className="p-1.5 bg-gray-600 hover:bg-blue-500 text-white rounded-full shadow-lg"
             title="Editar"
           >
             <Pencil size={12} strokeWidth={2.5} />
@@ -130,7 +130,7 @@ export const Icon: React.FC<IconProps> = ({
               onDelete();
             }}
             onPointerDown={(e) => e.stopPropagation()} // Prevent drag start on click
-            className="p-1.5 bg-gray-600 hover:bg-red-500 text-white rounded-full shadow-lg transition-colors"
+            className="p-1.5 bg-gray-600 hover:bg-red-500 text-white rounded-full shadow-lg"
             title="Eliminar"
           >
             <X size={12} strokeWidth={3} />
@@ -140,7 +140,8 @@ export const Icon: React.FC<IconProps> = ({
 
       <button
         onClick={onClick}
-        className="flex flex-col items-center justify-start w-full gap-2 focus:outline-none active:scale-95 transition-transform"
+        title={title}
+        className="flex flex-col items-center justify-start w-full gap-2 focus:outline-none cursor-pointer"
       >
         <div className={`relative ${boxSizeClasses[size]} flex items-center justify-center shrink-0`}>
           {isFolder ? (
@@ -163,7 +164,7 @@ export const Icon: React.FC<IconProps> = ({
               )}
             </div>
           ) : (
-            <div className={`relative w-full h-full rounded-2xl shadow-xl overflow-hidden flex items-center justify-center transition-transform group-hover:-translate-y-1 ${isLocalApp ? "bg-slate-900/90 border border-white/15" : "bg-white"}`}>
+            <div className={`relative w-full h-full rounded-2xl shadow-xl overflow-hidden flex items-center justify-center ${isLocalApp ? "bg-slate-900/90 border border-white/15" : "bg-white"}`}>
               <img
                 src={displayIconUrl}
                 alt={title}
@@ -186,33 +187,9 @@ export const Icon: React.FC<IconProps> = ({
           )}
         </div>
 
-        {/* 
-            Text Container Strategy:
-            1. Use a relative container with a FIXED height matching the lines we want to show by default (alignment).
-            2. Place the text inside as an absolute element.
-            3. By default, line-clamp it.
-            4. On hover, remove line-clamp, add background/blur, and let it expand over the content (z-index).
-        */}
-        <div className={`relative w-full ${textContainerHeight[size]} flex justify-center`}>
-          <span 
-            className={`
-              absolute top-0 left-1/2 -translate-x-1/2
-              text-white ${textSizeClasses[size]} font-medium text-center leading-tight
-              transition-all duration-200 ease-out
-              
-              /* Default State: Clamped, limited width, transparent */
-              w-full px-1 line-clamp-2 drop-shadow-md z-10
-
-              /* Hover State: Expanded, Background, High Z-Index */
-              group-hover:z-50
-              group-hover:w-auto group-hover:min-w-[120%] group-hover:max-w-[180px]
-              group-hover:line-clamp-none
-              group-hover:bg-gray-900/95 group-hover:backdrop-blur-xl
-              group-hover:border group-hover:border-white/10
-              group-hover:shadow-2xl group-hover:rounded-lg
-              group-hover:px-2 group-hover:py-1.5
-              group-hover:scale-105
-            `}
+        <div className={`w-full ${textContainerHeight[size]} flex justify-center`}>
+          <span
+            className={`w-full px-1 line-clamp-2 text-white ${textSizeClasses[size]} font-medium text-center leading-tight drop-shadow-md`}
           >
             {title}
           </span>
