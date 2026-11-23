@@ -11,7 +11,7 @@ const {
   screen,
   shell,
 } = require("electron");
-const { execFile } = require("child_process");
+const { execFile, execFileSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -362,51 +362,125 @@ function saveWindowState(win) {
   }
 }
 
-function positionLauncherOnActiveDisplay(win) {
-  if (!win || win.isDestroyed()) return;
+function getCursorScreenPointSafe() {
   try {
-    const cursor = screen.getCursorScreenPoint();
-    const display = screen.getDisplayNearestPoint(cursor);
-    const area = display.workArea;
-    const [w, h] = win.getSize();
-    const clampedW = Math.min(w, Math.max(640, area.width - 48));
-    const clampedH = Math.min(h, Math.max(440, area.height - 64));
-    if (clampedW !== w || clampedH !== h) {
-      win.setSize(clampedW, clampedH);
+    const pt = screen.getCursorScreenPoint();
+    // On pure Wayland, Chromium may return {0, 0}; fall back to xdotool if available
+    if (process.platform === "linux" && pt.x === 0 && pt.y === 0) {
+      try {
+        const out = execFileSync("xdotool", ["getmouselocation", "--shell"], {
+          encoding: "utf8",
+          timeout: 300,
+        });
+        const xMatch = /X=(\d+)/.exec(out);
+        const yMatch = /Y=(\d+)/.exec(out);
+        if (xMatch && yMatch) {
+          return { x: parseInt(xMatch[1], 10), y: parseInt(yMatch[1], 10) };
+        }
+      } catch {
+        // ignore if xdotool is unavailable
+      }
     }
-    const x = Math.round(area.x + (area.width - clampedW) / 2);
-    const y = Math.round(area.y + (area.height - clampedH) / 2.25);
-    win.setPosition(x, y, false);
+    return pt;
+  } catch {
+    return { x: 0, y: 0 };
+  }
+}
+
+function getDisplayAtCursor() {
+  try {
+    const cursor = getCursorScreenPointSafe();
+    const displays = screen.getAllDisplays();
+    // Prefer exact bounds containment first (most reliable on multi-monitor grids)
+    const exact = displays.find((d) => {
+      const b = d.bounds;
+      return (
+        cursor.x >= b.x &&
+        cursor.x < b.x + b.width &&
+        cursor.y >= b.y &&
+        cursor.y < b.y + b.height
+      );
+    });
+    return exact || screen.getDisplayNearestPoint(cursor);
+  } catch {
+    return screen.getPrimaryDisplay();
+  }
+}
+
+function computeCenteredBoundsForDisplay(display, width, height, { isLauncher = true } = {}) {
+  const area = display.workArea;
+  const minW = isLauncher ? 640 : 760;
+  const minH = isLauncher ? 440 : 520;
+  const clampedW = Math.min(width, Math.max(minW, area.width - 48));
+  const clampedH = Math.min(height, Math.max(minH, area.height - 64));
+  const x = Math.round(area.x + (area.width - clampedW) / 2);
+  const y = Math.round(area.y + (area.height - clampedH) / (isLauncher ? 2.25 : 2));
+  return { x, y, width: clampedW, height: clampedH };
+}
+
+function positionWindowOnCursorDisplay(win) {
+  if (!win || win.isDestroyed()) return null;
+  try {
+    const isLauncher = desktopPrefs?.windowMode === "launcher";
+    const display = getDisplayAtCursor();
+    const wasMaximized = !isLauncher && win.isMaximized();
+    if (wasMaximized) {
+      win.unmaximize();
+    }
+    const [w, h] = win.getSize();
+    const bounds = computeCenteredBoundsForDisplay(display, w, h, { isLauncher });
+    win.setBounds(bounds, false);
+    if (wasMaximized) {
+      win.maximize();
+    }
+    return bounds;
   } catch {
     win.center();
+    return null;
   }
 }
 
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    createMainWindow();
+    createMainWindow({ showImmediately: true });
     return;
   }
 
-  if (desktopPrefs.windowMode === "launcher") {
-    positionLauncherOnActiveDisplay(mainWindow);
-  }
+  const isLauncher = desktopPrefs.windowMode === "launcher";
 
   if (mainWindow.isMinimized()) {
     mainWindow.restore();
   }
 
-  if (process.platform === "darwin" && desktopPrefs.windowMode === "launcher") {
+  // Position on the display where the mouse cursor currently is BEFORE mapping
+  const targetBounds = positionWindowOnCursorDisplay(mainWindow);
+
+  if (process.platform === "darwin" && isLauncher) {
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     mainWindow.show();
-    mainWindow.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
+    if (targetBounds) mainWindow.setBounds(targetBounds, false);
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: true });
+      }
+    }, 120);
   } else {
     mainWindow.show();
+    // Re-apply bounds right after mapping so KWin (Linux XWayland) and Windows mixed-DPI
+    // do not restore the window onto its previous monitor
+    if (targetBounds && !mainWindow.isMaximized()) {
+      mainWindow.setBounds(targetBounds, false);
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMaximized()) {
+          mainWindow.setBounds(targetBounds, false);
+        }
+      }, 30);
+    }
   }
 
   mainWindow.focus();
-  if (HAS_KDE_NATIVE_BLUR && desktopPrefs.windowMode === "launcher") {
-    setTimeout(() => applyKdeBlurRegion(mainWindow), 40);
+  if (HAS_KDE_NATIVE_BLUR && isLauncher) {
+    setTimeout(() => applyKdeBlurRegion(mainWindow), 50);
   }
   if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
     mainWindow.webContents.send("desktop:window:shown");
@@ -430,11 +504,22 @@ function hideMainWindow() {
 
 function toggleMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    createMainWindow();
+    createMainWindow({ showImmediately: true });
     return;
   }
 
   if (mainWindow.isVisible() && mainWindow.isFocused()) {
+    // If the user moved their mouse to a different monitor, relocate the window there instead of hiding it
+    try {
+      const cursorDisplay = getDisplayAtCursor();
+      const winDisplay = screen.getDisplayMatching(mainWindow.getBounds());
+      if (cursorDisplay && winDisplay && cursorDisplay.id !== winDisplay.id) {
+        showMainWindow();
+        return;
+      }
+    } catch {
+      // ignore and toggle normally
+    }
     hideMainWindow();
   } else {
     showMainWindow();
@@ -630,11 +715,27 @@ function createMainWindow({ showImmediately = true } = {}) {
   };
 
   const win11Acrylic = isWindows11();
+  const initialDisplay = getDisplayAtCursor();
+  const initialBounds = isLauncher
+    ? computeCenteredBoundsForDisplay(
+        initialDisplay,
+        LAUNCHER_DEFAULT_WIDTH,
+        LAUNCHER_DEFAULT_HEIGHT,
+        { isLauncher: true }
+      )
+    : computeCenteredBoundsForDisplay(
+        initialDisplay,
+        normalState.width,
+        normalState.height,
+        { isLauncher: false }
+      );
 
   const windowOptions = isLauncher
     ? {
-        width: LAUNCHER_DEFAULT_WIDTH,
-        height: LAUNCHER_DEFAULT_HEIGHT,
+        width: initialBounds.width,
+        height: initialBounds.height,
+        x: initialBounds.x,
+        y: initialBounds.y,
         minWidth: 660,
         minHeight: 440,
         title: "LaunchPad",
@@ -663,10 +764,10 @@ function createMainWindow({ showImmediately = true } = {}) {
         webPreferences: basePrefs,
       }
     : {
-        width: normalState.width,
-        height: normalState.height,
-        x: normalState.x,
-        y: normalState.y,
+        width: initialBounds.width,
+        height: initialBounds.height,
+        x: initialBounds.x,
+        y: initialBounds.y,
         minWidth: 760,
         minHeight: 520,
         title: "LaunchPad Agregador",
@@ -680,18 +781,11 @@ function createMainWindow({ showImmediately = true } = {}) {
   const win = new BrowserWindow(windowOptions);
   mainWindow = win;
 
-  if (isLauncher) {
-    positionLauncherOnActiveDisplay(win);
-  } else if (normalState.isMaximized && !IS_SMOKE_TEST) {
-    win.maximize();
-  }
-
   win.once("ready-to-show", () => {
     if (IS_SMOKE_TEST || !showImmediately || win.isDestroyed()) return;
-    if (isLauncher) {
-      showMainWindow();
-    } else {
-      win.show();
+    showMainWindow();
+    if (!isLauncher && normalState.isMaximized) {
+      win.maximize();
     }
   });
 
