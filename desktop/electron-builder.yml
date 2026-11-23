@@ -1,6 +1,7 @@
 appId: com.launchpad.aggregator
 productName: LaunchPad
 copyright: Copyright © 2026 LaunchPad
+afterPack: desktop/scripts/after-pack-linux.cjs
 directories:
   output: release
   buildResources: desktop/assets
@@ -65,6 +66,9 @@ linux:
   description: >-
     LaunchPad Agregador de escritorio con interfaz 100% local y datos
     sincronizados en tiempo real con Firebase Firestore.
+  desktop:
+    entry:
+      StartupNotify: "false"
   target:
     - target: deb
       arch:
@@ -72,6 +76,9 @@ linux:
     - target: AppImage
       arch:
         - x64
+
+deb:
+  appArmorProfile: desktop/linux/apparmor-profile
 
 mac:
   icon: desktop/assets/icon.icns

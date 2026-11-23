@@ -29,11 +29,29 @@ const IS_KDE_LINUX =
   process.platform === "linux" &&
   (process.env.XDG_CURRENT_DESKTOP || "").toUpperCase().includes("KDE");
 
+if (IS_SMOKE_TEST) {
+  app.setPath("userData", path.join(os.tmpdir(), `launchpad-smoke-${process.pid}`));
+}
+
+app.setName("LaunchPad");
+
+if (process.platform === "win32") {
+  app.setAppUserModelId("com.launchpad.aggregator");
+}
+
+// Acquire single-instance lock BEFORE any KDE XWayland relaunch so clicking the OS app icon
+// while LaunchPad is already running notifies the live process immediately without booting twice.
+const hasLock = IS_SMOKE_TEST ? true : app.requestSingleInstanceLock();
+if (!hasLock) {
+  app.exit(0);
+}
+
 // On KDE Plasma Wayland, running through XWayland (--ozone-platform=x11) enables:
 // 1. Native 60 FPS GPU KWin Gaussian blur behind the window (_KDE_NET_WM_BLUR_BEHIND_REGION)
 // 2. Reliable global shortcuts (Alt+Space) across all apps
-// 3. Exact active-monitor centering (win.setPosition)
+// 3. Exact active-monitor centering via KWin
 const NEEDS_KDE_X11_RELAUNCH =
+  hasLock &&
   !IS_SMOKE_TEST &&
   IS_KDE_LINUX &&
   Boolean(process.env.DISPLAY) &&
@@ -42,6 +60,11 @@ const NEEDS_KDE_X11_RELAUNCH =
   !process.argv.some((a) => a.startsWith("--ozone-platform=x11"));
 
 if (NEEDS_KDE_X11_RELAUNCH) {
+  try {
+    app.releaseSingleInstanceLock();
+  } catch {
+    // ignore
+  }
   process.env.ELECTRON_OZONE_PLATFORM_HINT = "x11";
   process.env.LAUNCHPAD_X11_RELAUNCHED = "1";
   app.relaunch({
@@ -61,22 +84,12 @@ const HAS_KDE_NATIVE_BLUR = IS_KDE_LINUX && USING_X11_ON_LINUX;
 const IS_KDE_WAYLAND =
   IS_KDE_LINUX && process.env.XDG_SESSION_TYPE === "wayland";
 
-if (IS_SMOKE_TEST) {
-  app.setPath("userData", path.join(os.tmpdir(), `launchpad-smoke-${process.pid}`));
-}
-
 const DIST_DIR = path.resolve(__dirname, "..", "dist");
 const PRELOAD_PATH = path.join(__dirname, "preload.cjs");
 const ICON_PATH = path.join(__dirname, "assets", "icon.png");
 
 const LAUNCHER_DEFAULT_WIDTH = 860;
 const LAUNCHER_DEFAULT_HEIGHT = 560;
-
-app.setName("LaunchPad");
-
-if (process.platform === "win32") {
-  app.setAppUserModelId("com.launchpad.aggregator");
-}
 
 // Register privileged local protocol so local UI runs under a secure origin
 // (enabling IndexedDB Firebase Auth persistence, localStorage, Clipboard, and Fetch APIs)
@@ -102,6 +115,47 @@ let autoHidePauseCount = 0;
 let registeredShortcut = null;
 let shortcutError = null;
 let kwinCursorPlacementActive = false;
+let lastBlurredAt = 0;
+let lastHiddenByBlurAt = 0;
+
+function getLinuxPidFilePath() {
+  if (process.platform !== "linux") return null;
+  const runtimeDir = process.env.XDG_RUNTIME_DIR || os.tmpdir();
+  let uid = "user";
+  try {
+    uid = String(os.userInfo().uid);
+  } catch {
+    // ignore
+  }
+  return path.join(runtimeDir, `launchpad-${uid}.pid`);
+}
+
+function writeLinuxPidFile() {
+  if (IS_SMOKE_TEST || process.platform !== "linux") return;
+  const pidFile = getLinuxPidFilePath();
+  if (!pidFile) return;
+  try {
+    fs.writeFileSync(pidFile, String(process.pid), { encoding: "utf8", mode: 0o600 });
+  } catch (err) {
+    console.warn("Could not write Linux PID file:", err?.message || err);
+  }
+}
+
+function removeLinuxPidFile() {
+  if (IS_SMOKE_TEST || process.platform !== "linux") return;
+  const pidFile = getLinuxPidFilePath();
+  if (!pidFile) return;
+  try {
+    if (fs.existsSync(pidFile)) {
+      const stored = fs.readFileSync(pidFile, "utf8").trim();
+      if (stored === String(process.pid)) {
+        fs.unlinkSync(pidFile);
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
 
 const KWIN_PLACEMENT_PLUGIN = "launchpad_cursor_placement";
 const KWIN_REPOSITION_PLUGIN = "launchpad_cursor_reposition";
@@ -706,10 +760,24 @@ function hideMainWindow() {
   }
 }
 
-function toggleMainWindow() {
+function toggleMainWindow({ fromExternalTrigger = false } = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) {
     createMainWindow({ showImmediately: true });
     return;
+  }
+
+  const now = Date.now();
+  // When clicking the OS taskbar/dock/tray icon while LaunchPad is open, the panel click
+  // blurs/hides the launcher milliseconds before the trigger arrives; keep it hidden cleanly
+  // instead of flickering closed-and-open.
+  if (fromExternalTrigger && desktopPrefs?.windowMode === "launcher") {
+    if (mainWindow.isVisible() && (mainWindow.isFocused() || now - lastBlurredAt < 260)) {
+      hideMainWindow();
+      return;
+    }
+    if (!mainWindow.isVisible() && now - lastHiddenByBlurAt < 260) {
+      return;
+    }
   }
 
   if (mainWindow.isVisible() && mainWindow.isFocused()) {
@@ -815,7 +883,7 @@ function createTray() {
 
     tray = new Tray(trayIcon);
     tray.setToolTip("LaunchPad — Clic para abrir / ocultar");
-    tray.on("click", () => toggleMainWindow());
+    tray.on("click", () => toggleMainWindow({ fromExternalTrigger: true }));
     refreshTrayMenu();
   } catch (err) {
     console.warn("Could not create system tray icon:", err?.message || err);
@@ -1006,6 +1074,7 @@ function createMainWindow({ showImmediately = true } = {}) {
   // Auto-hide floating launcher when clicking outside (unless a modal/dialog is open)
   let blurTimer = null;
   win.on("blur", () => {
+    lastBlurredAt = Date.now();
     if (IS_SMOKE_TEST || isRecreatingWindow || isQuitting) return;
     if (desktopPrefs.windowMode !== "launcher" || !desktopPrefs.autoHideOnBlur) return;
     if (autoHidePauseCount > 0) return;
@@ -1020,6 +1089,7 @@ function createMainWindow({ showImmediately = true } = {}) {
         desktopPrefs.windowMode === "launcher" &&
         desktopPrefs.autoHideOnBlur
       ) {
+        lastHiddenByBlurAt = Date.now();
         win.hide();
       }
     }, 90);
@@ -1188,18 +1258,23 @@ async function updateDesktopPrefs(patch) {
   return getPrefsPayload();
 }
 
-// Single-instance lock: clicking the OS launcher icon toggles/shows the floating launcher immediately
-const hasLock = IS_SMOKE_TEST ? true : app.requestSingleInstanceLock();
-if (!hasLock) {
-  app.quit();
-} else {
-  app.on("second-instance", () => {
+if (hasLock && !NEEDS_KDE_X11_RELAUNCH) {
+  const handleExternalOpenTrigger = () => {
     if (desktopPrefs?.windowMode === "launcher") {
-      toggleMainWindow();
+      toggleMainWindow({ fromExternalTrigger: true });
     } else {
       showMainWindow();
     }
-  });
+  };
+
+  app.on("second-instance", handleExternalOpenTrigger);
+
+  if (process.platform === "linux" && !IS_SMOKE_TEST) {
+    process.on("SIGUSR2", () => {
+      if (!app.isReady()) return;
+      handleExternalOpenTrigger();
+    });
+  }
 
   ipcMain.handle("desktop:open-external", async (_event, rawUrl) => {
     if (typeof rawUrl === "string" && isAllowedExternalUrl(rawUrl)) {
@@ -1244,6 +1319,7 @@ if (!hasLock) {
 
   app.on("before-quit", () => {
     isQuitting = true;
+    removeLinuxPidFile();
     uninstallKwinCursorPlacement();
     try {
       globalShortcut.unregisterAll();
@@ -1254,6 +1330,7 @@ if (!hasLock) {
 
   app.whenReady().then(() => {
     desktopPrefs = loadDesktopPrefs();
+    writeLinuxPidFile();
     installKwinCursorPlacement();
 
     if (!DEV_URL) {
@@ -1280,6 +1357,7 @@ if (!hasLock) {
         }
       },
       onBeforeRelaunch: () => {
+        removeLinuxPidFile();
         uninstallKwinCursorPlacement();
       },
     });
