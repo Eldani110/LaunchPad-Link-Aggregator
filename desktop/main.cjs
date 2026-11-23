@@ -1279,6 +1279,9 @@ if (!hasLock) {
           showMainWindow();
         }
       },
+      onBeforeRelaunch: () => {
+        uninstallKwinCursorPlacement();
+      },
     });
 
     initLauncher({

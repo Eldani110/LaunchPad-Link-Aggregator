@@ -182,6 +182,7 @@ function initUpdater({
   skipAutoCheck = false,
   onBeforeInstallUpdate,
   onInstallCancelled,
+  onBeforeRelaunch,
 }) {
   const packageType = detectPackageType();
   const nativeCapable = supportsNativeAutoUpdate(packageType);
@@ -529,35 +530,78 @@ function initUpdater({
     return null;
   }
 
-  function runPkexecDpkgInstall(debPath) {
+  function processHasNoNewPrivs() {
+    if (process.platform !== "linux") return false;
+    try {
+      const status = fs.readFileSync("/proc/self/status", "utf8");
+      return /^NoNewPrivs:\s*1$/m.test(status);
+    } catch {
+      return false;
+    }
+  }
+
+  function execPrivilegeCommand(cmd, args) {
     return new Promise((resolve) => {
-      execFile(
-        "pkexec",
-        ["dpkg", "-i", debPath],
-        { timeout: 180000 },
-        (err, stdout, stderr) => {
-          if (!err) {
-            resolve({ ok: true, stdout, stderr });
-            return;
-          }
-          // Exit code 126 = user dismissed polkit password dialog; 127 = auth error/not authorized
-          const code = typeof err.code === "number" ? err.code : null;
-          if (code === 126 || code === 127) {
-            resolve({
-              ok: false,
-              canceled: true,
-              error: "Instalación cancelada o sin autorización de administrador.",
-            });
-            return;
-          }
+      execFile(cmd, args, { timeout: 180000, encoding: "utf8" }, (err, stdout, stderr) => {
+        if (!err) {
+          resolve({ ok: true, stdout, stderr });
+          return;
+        }
+        const code = typeof err.code === "number" ? err.code : null;
+        const errCodeStr = typeof err.code === "string" ? err.code : null;
+        const cleanStderr = String(stderr || "").trim();
+        // Exit code 126 = user dismissed polkit password dialog;
+        // 127 = auth error/not authorized (only if stderr isn't a technical binary/setuid error)
+        const isPolkitDismissed =
+          code === 126 ||
+          (code === 127 &&
+            (!cleanStderr || /dismissed|not authorized|authorization/i.test(cleanStderr)));
+        if (isPolkitDismissed) {
           resolve({
             ok: false,
-            canceled: false,
-            error: (stderr || err.message || "Error al instalar el paquete .deb.").trim(),
+            code,
+            errCodeStr,
+            canceled: true,
+            error: "Instalación cancelada o sin autorización de administrador.",
           });
+          return;
         }
-      );
+        resolve({
+          ok: false,
+          code,
+          errCodeStr,
+          canceled: false,
+          error: (cleanStderr || err.message || "Error al instalar el paquete .deb.").trim(),
+        });
+      });
     });
+  }
+
+  async function runPkexecDpkgInstall(debPath) {
+    // Electron on modern Linux sets PR_SET_NO_NEW_PRIVS=1 on its process tree,
+    // which causes the kernel to ignore pkexec's setuid-root bit ("pkexec must be setuid root").
+    // Delegating via `systemd-run --user` spawns pkexec from the user's systemd session manager
+    // with NoNewPrivs=0 so polkit displays the native desktop password dialog cleanly.
+    if (processHasNoNewPrivs()) {
+      const res = await execPrivilegeCommand("systemd-run", [
+        "--user",
+        "--wait",
+        "--pipe",
+        "--collect",
+        "--quiet",
+        "--description=LaunchPad Update Installer",
+        "--",
+        "/usr/bin/pkexec",
+        "/usr/bin/dpkg",
+        "-i",
+        debPath,
+      ]);
+      if (res.ok || res.errCodeStr !== "ENOENT") {
+        return res;
+      }
+    }
+
+    return await execPrivilegeCommand("/usr/bin/pkexec", ["/usr/bin/dpkg", "-i", debPath]);
   }
 
   async function installUpdate() {
@@ -565,7 +609,8 @@ function initUpdater({
     isInstalling = true;
 
     // Dedicated, non-blocking pkexec installer for Linux .deb packages
-    // (avoids electron-updater's blocking spawnSync + --disable-internal-agent polkit bug)
+    // (avoids electron-updater's blocking spawnSync + --disable-internal-agent polkit bug
+    // and Electron's NoNewPrivs=1 setuid restriction)
     if (process.platform === "linux" && packageType === "deb") {
       const debPath = resolvePendingDebPath();
       if (!debPath) {
@@ -576,6 +621,9 @@ function initUpdater({
         });
         return false;
       }
+
+      const launchExecPath = process.execPath.replace(/ \(deleted\)$/, "");
+      const launchArgs = process.argv.slice(1).filter((a) => a !== "--hidden");
 
       setState({ status: "installing", error: null });
       onBeforeInstallUpdate?.();
@@ -588,7 +636,11 @@ function initUpdater({
           // ignore cache cleanup error
         }
         autoUpdater.autoInstallOnAppQuit = false;
-        app.relaunch();
+        onBeforeRelaunch?.();
+        app.relaunch({
+          execPath: launchExecPath,
+          args: launchArgs,
+        });
         app.exit(0);
         return true;
       }
